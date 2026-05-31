@@ -6,6 +6,8 @@
 
 struct Star { sf::Vector2f worldPos; float r, bright, twSpd, twPhase; };
 
+struct Enemy {sf::Vector2f worldPos; float hp, speed; bool alive; };
+
 class Game {
 public:
     Game();
@@ -13,14 +15,20 @@ public:
 private:
     enum class State { Menu, Playing };
 
+
     sf::RenderWindow window;
     sf::Clock        clock;
     sf::Font         font;
     State            state = State::Menu;
     float            globalTime = 0.f;
 
+
     // Tło
     std::vector<Star> stars;
+
+    // Przeciwnicy
+    std::vector<Enemy> enemies;
+    float spawnTimer = 0.f;
 
     // Gracz
     sf::Vector2f    playerPos = {0.f, 0.f};
@@ -36,4 +44,7 @@ private:
     void drawBG();
     void drawPlayer();
     void drawMenu();
+    void spawnEnemy();
+    void updateEnemies(float dt);
+    void drawEnemies();
 };

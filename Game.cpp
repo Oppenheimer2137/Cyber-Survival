@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "Game.hpp"
 #include <cstdlib>
 #include <cmath>
@@ -95,6 +96,11 @@ void Game::update(float dt) {
             float angle = std::atan2(dir.y, dir.x) * 180.f / GPI + 90.f;
             playerShape.setRotation(angle);
         }
+        spawnTimer += dt;
+        if (spawnTimer >= 2.f) {
+                spawnTimer = 0.f;spawnEnemy();
+        }
+        updateEnemies(dt);
     }
 }
 
@@ -102,7 +108,7 @@ void Game::update(float dt) {
 void Game::render() {
     window.clear(sf::Color(2, 5, 12));
     drawBG();
-    if (state == State::Playing) drawPlayer();
+    if (state == State::Playing) drawEnemies(); drawPlayer();
     if (state == State::Menu)    drawMenu();
     window.display();
 }
@@ -154,4 +160,42 @@ void Game::drawMenu() {
     t.setFillColor(sf::Color(200, 220, 255, (sf::Uint8)(blink * 220.f)));
     centerText(t, GW/2.f, GH*0.58f);
     window.draw(t);
+}
+
+void Game::spawnEnemy() {
+    float angle = frand() * 2.f * GPI;
+    float dist  = 700.f + frand() * 200.f;
+    Enemy e;
+    e.worldPos = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
+    e.hp    = 30.f;
+    e.speed = 80.f + frand() * 40.f;
+    e.alive = true;
+    enemies.push_back(e);
+}
+
+void Game::updateEnemies(float dt) {
+    for (auto& e : enemies) {
+        if (!e.alive) continue;
+        e.worldPos += vnorm(playerPos - e.worldPos) * e.speed * dt;
+    }
+    enemies.erase(
+        std::remove_if(enemies.begin(), enemies.end(),
+                       [](const Enemy& e){ return !e.alive; }),
+        enemies.end()
+    );
+}
+
+void Game::drawEnemies() {
+    sf::CircleShape shape(12.f);
+    shape.setOrigin(12.f, 12.f);
+    shape.setFillColor(sf::Color(180, 30, 30));
+    shape.setOutlineColor(sf::Color(255, 60, 60));
+    shape.setOutlineThickness(2.f);
+    for (auto& e : enemies) {
+        if (!e.alive) continue;
+        sf::Vector2f scr = worldToScreen(e.worldPos, playerPos);
+        if (!isOnScreen(scr, 20.f)) continue;
+        shape.setPosition(scr);
+        window.draw(shape);
+    }
 }
