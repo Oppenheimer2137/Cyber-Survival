@@ -102,6 +102,9 @@ void Game::update(float dt) {
         }
         updateEnemies(dt);
     }
+
+    if (invincTimer > 0.f) invincTimer -= dt;
+    checkPlayerHit();
 }
 
 // ── Render ────────────────────────────────────────────────────
@@ -197,5 +200,18 @@ void Game::drawEnemies() {
         if (!isOnScreen(scr, 20.f)) continue;
         shape.setPosition(scr);
         window.draw(shape);
+    }
+}
+
+void Game::checkPlayerHit() {
+    for (auto& e : enemies) {
+        if (!e.alive) continue;
+        if (vlen(e.worldPos - playerPos) < 12.f + 14.f) {
+            if (invincTimer <= 0.f) {
+                playerHp -= 10;
+                invincTimer = 1.f;
+                if (playerHp <= 0) state = State::GameOver;
+            }
+        }
     }
 }

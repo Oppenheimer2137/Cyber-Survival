@@ -13,7 +13,7 @@ public:
     Game();
     void run();
 private:
-    enum class State { Menu, Playing };
+    enum class State { Menu, Playing, GameOver };
 
 
     sf::RenderWindow window;
@@ -29,6 +29,8 @@ private:
     // Przeciwnicy
     std::vector<Enemy> enemies;
     float spawnTimer = 0.f;
+    float invincTimer = 0.f;
+    int   playerHp    = 10;
 
     // Gracz
     sf::Vector2f    playerPos = {0.f, 0.f};
@@ -47,4 +49,5 @@ private:
     void spawnEnemy();
     void updateEnemies(float dt);
     void drawEnemies();
+    void checkPlayerHit();
 };
