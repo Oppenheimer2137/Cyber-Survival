@@ -85,10 +85,10 @@ void Game::update(float dt) {
     if (state == State::Playing) {
         // Ruch WASD
         sf::Vector2f dir(0.f, 0.f);
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) dir.y -= 1.f;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) dir.y += 1.f;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) dir.x -= 1.f;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) dir.x += 1.f;
+        if ((sf::Keyboard::isKeyPressed(sf::Keyboard::W))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))) dir.y -= 1.f;
+        if ((sf::Keyboard::isKeyPressed(sf::Keyboard::S))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))) dir.y += 1.f;
+        if ((sf::Keyboard::isKeyPressed(sf::Keyboard::A))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))) dir.x -= 1.f;
+        if ((sf::Keyboard::isKeyPressed(sf::Keyboard::D))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))) dir.x += 1.f;
         playerPos += vnorm(dir) * PLAYER_SPD * dt;
 
         // Obróć statek w kierunku ruchu
@@ -101,17 +101,20 @@ void Game::update(float dt) {
                 spawnTimer = 0.f;spawnEnemy();
         }
         updateEnemies(dt);
+        findAndShoot();
+        updateBullets(dt);
+        if (invincTimer > 0.f) invincTimer -= dt;
+        checkPlayerHit();
     }
 
-    if (invincTimer > 0.f) invincTimer -= dt;
-    checkPlayerHit();
+
 }
 
 // ── Render ────────────────────────────────────────────────────
 void Game::render() {
     window.clear(sf::Color(2, 5, 12));
     drawBG();
-    if (state == State::Playing) drawEnemies(); drawPlayer();
+    if (state == State::Playing) {drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
     if (state == State::Menu)    drawMenu();
     window.display();
 }
@@ -143,9 +146,9 @@ void Game::drawPlayer() {
 
     playerShape.setPosition(scr);
     window.draw(playerShape);
-
-
 }
+
+
 
 void Game::drawMenu() {
     if (font.getInfo().family.empty()) return;
@@ -172,6 +175,7 @@ void Game::spawnEnemy() {
     e.worldPos = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
     e.hp    = 30.f;
     e.speed = 80.f + frand() * 40.f;
+    e.flashTimer = 0.f;
     e.alive = true;
     enemies.push_back(e);
 }
@@ -179,6 +183,7 @@ void Game::spawnEnemy() {
 void Game::updateEnemies(float dt) {
     for (auto& e : enemies) {
         if (!e.alive) continue;
+        if (e.flashTimer > 0.f) e.flashTimer -= dt;
         e.worldPos += vnorm(playerPos - e.worldPos) * e.speed * dt;
     }
     enemies.erase(
@@ -191,15 +196,16 @@ void Game::updateEnemies(float dt) {
 void Game::drawEnemies() {
     sf::CircleShape shape(12.f);
     shape.setOrigin(12.f, 12.f);
-    shape.setFillColor(sf::Color(180, 30, 30));
     shape.setOutlineColor(sf::Color(255, 60, 60));
     shape.setOutlineThickness(2.f);
     for (auto& e : enemies) {
         if (!e.alive) continue;
+        shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : sf::Color(180, 30, 30));
         sf::Vector2f scr = worldToScreen(e.worldPos, playerPos);
         if (!isOnScreen(scr, 20.f)) continue;
         shape.setPosition(scr);
         window.draw(shape);
+
     }
 }
 
@@ -214,4 +220,83 @@ void Game::checkPlayerHit() {
             }
         }
     }
+}
+
+void Game::findAndShoot() {
+    fireTimer -= 0.016f;
+    if (fireTimer > 0.f) return;
+
+    Enemy* target = nullptr;
+    float  bestDist = 1e9f;
+    for (auto& e : enemies) {
+        if (!e.alive) continue;
+        float d = vlen(e.worldPos - playerPos);
+        if (d < bestDist) { bestDist = d; target = &e; }
+    }
+    if (!target) return;
+
+    fireTimer = 100.2f;
+    Bullet b;
+    b.worldPos = playerPos;
+    b.dir      = vnorm(target->worldPos - playerPos);
+    b.speed    = 500.f;
+    b.lifetime = 2.f;
+    b.alive    = true;
+    bullets.push_back(b);
+}
+
+void Game::updateBullets(float dt) {
+    for (auto& b : bullets) {
+        if (!b.alive) continue;
+        b.worldPos += b.dir * b.speed * dt;
+        b.lifetime -= dt;
+        if (b.lifetime <= 0.f) { b.alive = false; continue; }
+
+        for (auto& e : enemies) {
+            if (!e.alive) continue;
+            if (vlen(b.worldPos - e.worldPos) < 5.f + 12.f) {
+                e.hp -= 10.f;
+                e.flashTimer = 0.1f;
+                b.alive = false;
+                if (e.hp <= 0.f) e.alive = false;
+                break;
+            }
+        }
+    }
+    bullets.erase(
+        std::remove_if(bullets.begin(), bullets.end(),
+                       [](const Bullet& b){ return !b.alive; }),
+        bullets.end()
+    );
+}
+
+void Game::drawBullets() {
+    sf::CircleShape shape(5.f);
+    shape.setOrigin(5.f, 5.f);
+    shape.setFillColor(sf::Color(0, 240, 180));
+    for (auto& b : bullets) {
+        if (!b.alive) continue;
+        sf::Vector2f scr = worldToScreen(b.worldPos, playerPos);
+        if (!isOnScreen(scr, 20.f)) continue;
+        shape.setPosition(scr);
+        window.draw(shape);
+    }
+}
+
+void Game::drawHUD() {
+    float barW = 512.f;
+    float barH = 24.f;
+    float x    = 20.f;
+    float y    = GH - 30.f;
+    float filled = barW * (playerHp / 100.f);
+
+    sf::RectangleShape bgBar({barW, barH});
+    bgBar.setPosition(x, y);
+    bgBar.setFillColor(sf::Color(60, 0, 0));
+    window.draw(bgBar);
+
+    sf::RectangleShape hpBar({filled, barH});
+    hpBar.setPosition(x, y);
+    hpBar.setFillColor(sf::Color(0, 220, 80));
+    window.draw(hpBar);
 }

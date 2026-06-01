@@ -6,7 +6,7 @@
 
 struct Star { sf::Vector2f worldPos; float r, bright, twSpd, twPhase; };
 
-struct Enemy {sf::Vector2f worldPos; float hp, speed; bool alive; };
+struct Enemy {sf::Vector2f worldPos; float hp, speed, flashTimer; bool alive; };
 
 class Game {
 public:
@@ -29,8 +29,11 @@ private:
     // Przeciwnicy
     std::vector<Enemy> enemies;
     float spawnTimer = 0.f;
+    struct Bullet { sf::Vector2f worldPos, dir; float speed, lifetime; bool alive; };
+    std::vector<Bullet> bullets;
+    float fireTimer = 0.f;
     float invincTimer = 0.f;
-    int   playerHp    = 10;
+    int   playerHp    = 100;
 
     // Gracz
     sf::Vector2f    playerPos = {0.f, 0.f};
@@ -50,4 +53,8 @@ private:
     void updateEnemies(float dt);
     void drawEnemies();
     void checkPlayerHit();
+    void updateBullets(float dt);
+    void drawBullets();
+    void findAndShoot();
+    void drawHUD();
 };
