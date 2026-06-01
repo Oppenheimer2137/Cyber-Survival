@@ -74,6 +74,8 @@ void Game::handleEvents() {
             if (ev.key.code == sf::Keyboard::Escape) window.close();
             if (ev.key.code == sf::Keyboard::Return && state == State::Menu)
                 state = State::Playing;
+            if (ev.key.code == sf::Keyboard::Return && state == State::GameOver)
+                state = State::Menu;
         }
     }
 }
@@ -91,7 +93,7 @@ void Game::update(float dt) {
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::D))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))) dir.x += 1.f;
         playerPos += vnorm(dir) * PLAYER_SPD * dt;
 
-        // Obróć statek w kierunku ruchu
+        // Obróć sie w kierunku ruchu
         if (vlen(dir) > 0.01f) {
             float angle = std::atan2(dir.y, dir.x) * 180.f / GPI + 90.f;
             playerShape.setRotation(angle);
@@ -105,6 +107,15 @@ void Game::update(float dt) {
         updateBullets(dt);
         if (invincTimer > 0.f) invincTimer -= dt;
         checkPlayerHit();
+        xpSpawnTimer += dt;
+        if (xpSpawnTimer >= 3.f) {
+            xpSpawnTimer = 0.f;
+            sf::Vector2f spawnPos = playerPos + sf::Vector2f(
+            frandr(-800.f, 800.f), frandr(-600.f, 600.f));
+            spawnXpOrb(spawnPos, 1);
+}
+        updateXpOrbs(dt);
+        checkXpPickup();
     }
 
 
@@ -114,8 +125,9 @@ void Game::update(float dt) {
 void Game::render() {
     window.clear(sf::Color(2, 5, 12));
     drawBG();
-    if (state == State::Playing) {drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
+    if (state == State::Playing) {drawXpOrbs(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
     if (state == State::Menu)    drawMenu();
+    if (state == State::GameOver) drawGameOver();
     window.display();
 }
 
@@ -136,7 +148,7 @@ void Game::drawBG() {
 void Game::drawPlayer() {
     sf::Vector2f scr(GW/2.f, GH/2.f);
 
-    // Poświata silnika
+    // Poświata
     float glow = 10.f + 5.f * std::sin(globalTime * 4.f);
     sf::CircleShape g(glow);
     g.setOrigin(glow, glow);
@@ -235,7 +247,7 @@ void Game::findAndShoot() {
     }
     if (!target) return;
 
-    fireTimer = 100.2f;
+    fireTimer = 3.2f;
     Bullet b;
     b.worldPos = playerPos;
     b.dir      = vnorm(target->worldPos - playerPos);
@@ -258,7 +270,10 @@ void Game::updateBullets(float dt) {
                 e.hp -= 10.f;
                 e.flashTimer = 0.1f;
                 b.alive = false;
-                if (e.hp <= 0.f) e.alive = false;
+                if (e.hp <= 0.f) {
+                e.alive = false;
+                if (frand() < 0.2f) spawnXpOrb(e.worldPos, 1);
+}
                 break;
             }
         }
@@ -299,4 +314,85 @@ void Game::drawHUD() {
     hpBar.setPosition(x, y);
     hpBar.setFillColor(sf::Color(0, 220, 80));
     window.draw(hpBar);
+
+    float xpBarW = 512.f;
+    float xpFilled = xpBarW * ((float)playerXp / (float)xpToNext);
+    sf::RectangleShape xpBg({xpBarW, 10.f});
+    xpBg.setPosition(x, y - 16.f);
+    xpBg.setFillColor(sf::Color(0, 30, 60));
+    window.draw(xpBg);
+    sf::RectangleShape xpBar({xpFilled, 10.f});
+    xpBar.setPosition(x, y - 16.f);
+    xpBar.setFillColor(sf::Color(40, 160, 255));
+    window.draw(xpBar);
+}
+
+void Game::drawGameOver() {
+    if (font.getInfo().family.empty()) return;
+    sf::Text t;
+    t.setFont(font);
+    t.setString("GAME OVER");
+    t.setCharacterSize(80);
+    t.setFillColor(sf::Color(220, 40, 40));
+    centerText(t, GW/2.f, GH*0.38f);
+    window.draw(t);
+
+    float blink = 0.5f + 0.5f * std::sin(globalTime * 3.f);
+    t.setString("[ ENTER - wroc do menu ]");
+    t.setCharacterSize(28);
+    t.setFillColor(sf::Color(200, 200, 200, (sf::Uint8)(blink * 220.f)));
+    centerText(t, GW/2.f, GH*0.55f);
+    window.draw(t);
+}
+
+void Game::spawnXpOrb(sf::Vector2f pos, int value) {
+    XpOrb orb;
+    orb.worldPos = pos;
+    orb.value    = value;
+    orb.alive    = true;
+    xpOrbs.push_back(orb);
+}
+
+void Game::updateXpOrbs(float dt) {
+    xpOrbs.erase(
+        std::remove_if(xpOrbs.begin(), xpOrbs.end(),
+                       [](const XpOrb& o){ return !o.alive; }),
+        xpOrbs.end()
+    );
+}
+
+void Game::checkXpPickup() {
+    const float pickupRadius = 30.f;
+    const float magnetRadius = 150.f;
+    for (auto& orb : xpOrbs) {
+        if (!orb.alive) continue;
+        float d = vlen(orb.worldPos - playerPos);
+        if (d < magnetRadius)
+            orb.worldPos += vnorm(playerPos - orb.worldPos) * 200.f * 0.016f;
+        if (d < pickupRadius) {
+            orb.alive = false;
+            playerXp += orb.value;
+            if (playerXp >= xpToNext) {
+                playerXp  -= xpToNext;
+                playerLevel++;
+                xpToNext   = playerLevel * 10;
+                // miejsce na power-up
+            }
+        }
+    }
+}
+
+void Game::drawXpOrbs() {
+    sf::CircleShape shape(6.f);
+    shape.setOrigin(6.f, 6.f);
+    shape.setFillColor(sf::Color(40, 160, 255));
+    shape.setOutlineColor(sf::Color(100, 200, 255));
+    shape.setOutlineThickness(1.f);
+    for (auto& orb : xpOrbs) {
+        if (!orb.alive) continue;
+        sf::Vector2f scr = worldToScreen(orb.worldPos, playerPos);
+        if (!isOnScreen(scr, 20.f)) continue;
+        shape.setPosition(scr);
+        window.draw(shape);
+    }
 }

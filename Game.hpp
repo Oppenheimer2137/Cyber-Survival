@@ -8,6 +8,8 @@ struct Star { sf::Vector2f worldPos; float r, bright, twSpd, twPhase; };
 
 struct Enemy {sf::Vector2f worldPos; float hp, speed, flashTimer; bool alive; };
 
+struct XpOrb { sf::Vector2f worldPos; int value; bool alive; };
+
 class Game {
 public:
     Game();
@@ -28,6 +30,13 @@ private:
 
     // Przeciwnicy
     std::vector<Enemy> enemies;
+
+    std::vector<XpOrb> xpOrbs;
+    float xpSpawnTimer = 0.f;
+    int   playerXp     = 0;
+    int   playerLevel  = 1;
+    int   xpToNext     = 10;
+
     float spawnTimer = 0.f;
     struct Bullet { sf::Vector2f worldPos, dir; float speed, lifetime; bool alive; };
     std::vector<Bullet> bullets;
@@ -57,4 +66,9 @@ private:
     void drawBullets();
     void findAndShoot();
     void drawHUD();
+    void drawGameOver();
+    void spawnXpOrb(sf::Vector2f pos, int value);
+    void updateXpOrbs(float dt);
+    void drawXpOrbs();
+    void checkXpPickup();
 };
