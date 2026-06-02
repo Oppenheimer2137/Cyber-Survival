@@ -98,11 +98,10 @@ void Game::update(float dt) {
             float angle = std::atan2(dir.y, dir.x) * 180.f / GPI + 90.f;
             playerShape.setRotation(angle);
         }
-        spawnTimer += dt;
-        if (spawnTimer >= 2.f) {
-                spawnTimer = 0.f;spawnEnemy();
-        }
+
+        updateWave(dt);
         updateEnemies(dt);
+
         findAndShoot();
         updateBullets(dt);
         if (invincTimer > 0.f) invincTimer -= dt;
@@ -184,12 +183,50 @@ void Game::spawnEnemy() {
     float angle = frand() * 2.f * GPI;
     float dist  = 700.f + frand() * 200.f;
     Enemy e;
-    e.worldPos = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
-    e.hp    = 30.f;
-    e.speed = 80.f + frand() * 40.f;
+    e.worldPos   = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
+    e.hp         = 30.f;
+    e.speed      = 80.f + frand() * 40.f + waveNumber * 2.f;
     e.flashTimer = 0.f;
-    e.alive = true;
+    e.alive      = true;
     enemies.push_back(e);
+}
+
+void Game::startWave() {
+    waveNumber++;
+    waveEnemiesSpawn  = 8 + waveNumber * 3;
+    waveEnemiesLeft   = waveEnemiesSpawn;
+    waveSpawnTimer    = 0.f;
+    waveSpawnInterval = std::max(0.4f, 1.5f - waveNumber * 0.05f);
+    waveState         = WaveState::Spawning;
+}
+
+void Game::updateWave(float dt) {
+    switch (waveState) {
+        case WaveState::Countdown:
+            waveClearTimer += dt;
+            if (waveClearTimer >= (waveNumber == 0 ? 1.f : 3.f)) {
+                waveClearTimer = 0.f;
+                startWave();
+            }
+            break;
+
+        case WaveState::Spawning:
+            waveSpawnTimer += dt;
+            if (waveSpawnTimer >= waveSpawnInterval && waveEnemiesLeft > 0) {
+                waveSpawnTimer = 0.f;
+                waveEnemiesLeft--;
+                spawnEnemy();
+            }
+            if (waveEnemiesLeft == 0) waveState = WaveState::WaitingClear;
+            break;
+
+        case WaveState::WaitingClear:
+            if (enemies.empty()) {
+                waveClearTimer = 0.f;
+                waveState      = WaveState::Countdown;
+            }
+            break;
+    }
 }
 
 void Game::updateEnemies(float dt) {
@@ -299,10 +336,10 @@ void Game::drawBullets() {
 }
 
 void Game::drawHUD() {
-    float barW = 512.f;
-    float barH = 24.f;
-    float x    = 20.f;
-    float y    = GH - 30.f;
+    float barW   = 512.f;
+    float barH   = 24.f;
+    float x      = 20.f;
+    float y      = GH - 30.f;
     float filled = barW * (playerHp / 100.f);
 
     sf::RectangleShape bgBar({barW, barH});
@@ -315,9 +352,8 @@ void Game::drawHUD() {
     hpBar.setFillColor(sf::Color(0, 220, 80));
     window.draw(hpBar);
 
-    float xpBarW = 512.f;
-    float xpFilled = xpBarW * ((float)playerXp / (float)xpToNext);
-    sf::RectangleShape xpBg({xpBarW, 10.f});
+    float xpFilled = barW * ((float)playerXp / (float)xpToNext);
+    sf::RectangleShape xpBg({barW, 10.f});
     xpBg.setPosition(x, y - 16.f);
     xpBg.setFillColor(sf::Color(0, 30, 60));
     window.draw(xpBg);
@@ -325,6 +361,43 @@ void Game::drawHUD() {
     xpBar.setPosition(x, y - 16.f);
     xpBar.setFillColor(sf::Color(40, 160, 255));
     window.draw(xpBar);
+
+    if (font.getInfo().family.empty()) return;
+    sf::Text t;
+    t.setFont(font);
+    t.setCharacterSize(16);
+
+    t.setString("HP: " + std::to_string(playerHp) + " / 100");
+    t.setFillColor(sf::Color(180, 255, 200));
+    t.setPosition(x, y - 20.f);
+    window.draw(t);
+
+    t.setString("LVL " + std::to_string(playerLevel) + "   XP: " + std::to_string(playerXp) + " / " + std::to_string(xpToNext));
+    t.setFillColor(sf::Color(100, 180, 255));
+    t.setPosition(x, y - 38.f);
+    window.draw(t);
+
+    t.setCharacterSize(22);
+    t.setString("WAVE " + std::to_string(waveNumber));
+    t.setFillColor(COL_CORE);
+    t.setPosition(GW - 160.f, 16.f);
+    window.draw(t);
+
+    int alive = (int)enemies.size();
+    t.setCharacterSize(16);
+    t.setString("Wrogowie: " + std::to_string(alive));
+    t.setFillColor(sf::Color(200, 200, 200));
+    t.setPosition(GW - 160.f, 44.f);
+    window.draw(t);
+
+    if (waveState == WaveState::Countdown && waveNumber > 0) {
+        float timeLeft = (waveNumber == 0 ? 1.f : 3.f) - waveClearTimer;
+        t.setCharacterSize(32);
+        t.setString("FALA " + std::to_string(waveNumber + 1) + " ZA " + std::to_string((int)timeLeft + 1) + "s");
+        t.setFillColor(sf::Color(255, 200, 0));
+        centerText(t, GW / 2.f, GH * 0.25f);
+        window.draw(t);
+    }
 }
 
 void Game::drawGameOver() {

@@ -37,7 +37,16 @@ private:
     int   playerLevel  = 1;
     int   xpToNext     = 10;
 
-    float spawnTimer = 0.f;
+    // Fale
+    int       waveNumber        = 0;
+    int       waveEnemiesLeft   = 0;
+    int       waveEnemiesSpawn  = 0;
+    float     waveSpawnTimer    = 0.f;
+    float     waveSpawnInterval = 1.5f;
+    float     waveClearTimer    = 0.f;
+    enum class WaveState { Countdown, Spawning, WaitingClear };
+    WaveState waveState         = WaveState::Countdown;
+
     struct Bullet { sf::Vector2f worldPos, dir; float speed, lifetime; bool alive; };
     std::vector<Bullet> bullets;
     float fireTimer = 0.f;
@@ -59,6 +68,8 @@ private:
     void drawPlayer();
     void drawMenu();
     void spawnEnemy();
+    void startWave();
+    void updateWave(float dt);
     void updateEnemies(float dt);
     void drawEnemies();
     void checkPlayerHit();
