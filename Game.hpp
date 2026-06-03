@@ -73,7 +73,7 @@ private:
     std::vector<Bullet> bullets;
     float fireTimer = 0.f;
     float invincTimer = 0.f;
-    int   playerHp    = 100000;
+    int   playerHp    = 100;
 
     // Gracz
     sf::Vector2f    playerPos = {0.f, 0.f};
