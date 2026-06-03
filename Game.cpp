@@ -115,6 +115,23 @@ void Game::update(float dt) {
 }
         updateXpOrbs(dt);
         checkXpPickup();
+        hpSpawnTimer += dt;
+    if (hpSpawnTimer >= 20.f) {
+        hpSpawnTimer = 0.f;
+        sf::Vector2f p = playerPos + sf::Vector2f(frandr(-900.f,900.f), frandr(-700.f,700.f));
+        spawnHpOrb(p);
+    }
+    boostSpawnTimer += dt;
+    if (boostSpawnTimer >= 45.f) {
+        boostSpawnTimer = 0.f;
+        sf::Vector2f p = playerPos + sf::Vector2f(frandr(-900.f,900.f), frandr(-700.f,700.f));
+        spawnBoostOrb(p, rand() % 5);
+    }
+    updateHpOrbs(dt);
+    updateBoostOrbs(dt);
+    checkHpPickup();
+    checkBoostPickup();
+    tickBoosts(dt);
     }
 
 
@@ -124,7 +141,7 @@ void Game::update(float dt) {
 void Game::render() {
     window.clear(sf::Color(2, 5, 12));
     drawBG();
-    if (state == State::Playing) {drawXpOrbs(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
+    if (state == State::Playing) {drawXpOrbs(); drawHpOrbs(); drawBoostOrbs(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
     if (state == State::Menu)    drawMenu();
     if (state == State::GameOver) drawGameOver();
     window.display();
@@ -182,12 +199,33 @@ void Game::drawMenu() {
 void Game::spawnEnemy() {
     float angle = frand() * 2.f * GPI;
     float dist  = 700.f + frand() * 200.f;
+
     Enemy e;
-    e.worldPos   = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
-    e.hp         = 30.f;
-    e.speed      = 80.f + frand() * 40.f + waveNumber * 2.f;
-    e.flashTimer = 0.f;
-    e.alive      = true;
+    e.worldPos    = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
+    e.flashTimer  = 0.f;
+    e.alive       = true;
+    e.zigzagTimer = 0.f;
+
+    int maxType = (waveNumber < 3) ? 0 : (waveNumber < 6) ? 1 : 2;
+    e.type = rand() % (maxType + 1);
+
+    switch (e.type) {
+        case 0: // Virus
+            e.hp    = 30.f;
+            e.maxHp = 30.f;
+            e.speed = 90.f + waveNumber * 2.f;
+            break;
+        case 1: // Worm
+            e.hp    = 15.f;
+            e.maxHp = 15.f;
+            e.speed = 160.f + waveNumber * 2.f;
+            break;
+        case 2: // Exploit
+            e.hp    = 120.f;
+            e.maxHp = 120.f;
+            e.speed = 45.f + waveNumber * 1.f;
+            break;
+    }
     enemies.push_back(e);
 }
 
@@ -233,8 +271,15 @@ void Game::updateEnemies(float dt) {
     for (auto& e : enemies) {
         if (!e.alive) continue;
         if (e.flashTimer > 0.f) e.flashTimer -= dt;
-        e.worldPos += vnorm(playerPos - e.worldPos) * e.speed * dt;
-    }
+        if (e.type == 1) {
+            e.zigzagTimer += dt;
+            sf::Vector2f toPlayer = vnorm(playerPos - e.worldPos);
+            sf::Vector2f perp(-toPlayer.y, toPlayer.x);
+            float zigzag = std::sin(e.zigzagTimer * 5.f) * 0.6f;
+            e.worldPos += (toPlayer + perp * zigzag) * e.speed * dt;
+    }   else {
+            e.worldPos += vnorm(playerPos - e.worldPos) * e.speed * dt;
+    }}
     enemies.erase(
         std::remove_if(enemies.begin(), enemies.end(),
                        [](const Enemy& e){ return !e.alive; }),
@@ -249,7 +294,17 @@ void Game::drawEnemies() {
     shape.setOutlineThickness(2.f);
     for (auto& e : enemies) {
         if (!e.alive) continue;
-        shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : sf::Color(180, 30, 30));
+
+        sf::Color col;
+        switch(e.type) {
+            case 0: col = sf::Color(180, 30,  30);  break; // Virus
+            case 1: col = sf::Color(60,  220, 120); break; // Worm
+            case 2: col = sf::Color(120, 120, 140); break; // Exploit
+    }
+shape.setRadius(e.type == 2 ? 18.f : 12.f);
+shape.setOrigin(shape.getRadius(), shape.getRadius());
+shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : col);
+
         sf::Vector2f scr = worldToScreen(e.worldPos, playerPos);
         if (!isOnScreen(scr, 20.f)) continue;
         shape.setPosition(scr);
@@ -310,6 +365,7 @@ void Game::updateBullets(float dt) {
                 if (e.hp <= 0.f) {
                 e.alive = false;
                 if (frand() < 0.2f) spawnXpOrb(e.worldPos, 1);
+                if (e.type == 2 && frand() < 0.15f) spawnBoostOrb(e.worldPos, rand() % 5);
 }
                 break;
             }
@@ -465,6 +521,95 @@ void Game::drawXpOrbs() {
         if (!orb.alive) continue;
         sf::Vector2f scr = worldToScreen(orb.worldPos, playerPos);
         if (!isOnScreen(scr, 20.f)) continue;
+        shape.setPosition(scr);
+        window.draw(shape);
+    }
+}
+
+void Game::spawnHpOrb(sf::Vector2f pos) {
+    HpOrb o; o.worldPos = pos; o.alive = true;
+    hpOrbs.push_back(o);
+}
+
+void Game::spawnBoostOrb(sf::Vector2f pos, int type) {
+    BoostOrb o; o.worldPos = pos; o.alive = true; o.type = type;
+    boostOrbs.push_back(o);
+}
+
+void Game::updateHpOrbs(float dt) {
+    hpOrbs.erase(std::remove_if(hpOrbs.begin(), hpOrbs.end(),
+        [](const HpOrb& o){ return !o.alive; }), hpOrbs.end());
+}
+
+void Game::updateBoostOrbs(float dt) {
+    boostOrbs.erase(std::remove_if(boostOrbs.begin(), boostOrbs.end(),
+        [](const BoostOrb& o){ return !o.alive; }), boostOrbs.end());
+}
+
+void Game::checkHpPickup() {
+    for (auto& o : hpOrbs) {
+        if (!o.alive) continue;
+        if (vlen(o.worldPos - playerPos) < 20.f) {
+            o.alive   = false;
+            playerHp  = std::min(playerHp + 25, 100);
+        }
+    }
+}
+
+void Game::checkBoostPickup() {
+    for (auto& o : boostOrbs) {
+        if (!o.alive) continue;
+        if (vlen(o.worldPos - playerPos) < 20.f) {
+            o.alive = false;
+            switch (o.type) {
+                case 0: boostSpeedTimer  = 15.f; break; // SpeedCore
+                case 1: boostFireTimer   = 12.f; break; // Overclock
+                case 2: boostMagnetTimer = 20.f; break; // DataSurge
+                case 3: boostDmgTimer    =  8.f; break; // Overload
+                case 4: boostGhostTimer  =  5.f; break; // GhostProtocol
+            }
+        }
+    }
+}
+
+void Game::tickBoosts(float dt) {
+    if (boostSpeedTimer  > 0.f) boostSpeedTimer  -= dt;
+    if (boostFireTimer   > 0.f) boostFireTimer   -= dt;
+    if (boostMagnetTimer > 0.f) boostMagnetTimer -= dt;
+    if (boostDmgTimer    > 0.f) boostDmgTimer    -= dt;
+    if (boostGhostTimer  > 0.f) boostGhostTimer  -= dt;
+}
+
+void Game::drawHpOrbs() {
+    sf::CircleShape shape(8.f);
+    shape.setOrigin(8.f, 8.f);
+    shape.setFillColor(sf::Color(220, 60, 60));
+    shape.setOutlineColor(sf::Color(255, 120, 120));
+    shape.setOutlineThickness(1.5f);
+    for (auto& o : hpOrbs) {
+        if (!o.alive) continue;
+        sf::Vector2f scr = worldToScreen(o.worldPos, playerPos);
+        if (!isOnScreen(scr, 20.f)) continue;
+        shape.setPosition(scr);
+        window.draw(shape);
+    }
+}
+
+void Game::drawBoostOrbs() {
+    sf::CircleShape shape(9.f);
+    shape.setOrigin(9.f, 9.f);
+    shape.setOutlineThickness(1.5f);
+    for (auto& o : boostOrbs) {
+        if (!o.alive) continue;
+        sf::Vector2f scr = worldToScreen(o.worldPos, playerPos);
+        if (!isOnScreen(scr, 20.f)) continue;
+        switch (o.type) {
+            case 0: shape.setFillColor(sf::Color(255,200,0));   shape.setOutlineColor(sf::Color(255,240,100)); break;
+            case 1: shape.setFillColor(sf::Color(255,100,0));   shape.setOutlineColor(sf::Color(255,160,80));  break;
+            case 2: shape.setFillColor(sf::Color(0,200,255));   shape.setOutlineColor(sf::Color(100,230,255)); break;
+            case 3: shape.setFillColor(sf::Color(220,0,220));   shape.setOutlineColor(sf::Color(255,100,255)); break;
+            case 4: shape.setFillColor(sf::Color(220,220,220)); shape.setOutlineColor(sf::Color(255,255,255)); break;
+        }
         shape.setPosition(scr);
         window.draw(shape);
     }

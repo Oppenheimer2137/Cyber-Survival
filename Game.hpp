@@ -6,9 +6,17 @@
 
 struct Star { sf::Vector2f worldPos; float r, bright, twSpd, twPhase; };
 
-struct Enemy {sf::Vector2f worldPos; float hp, speed, flashTimer; bool alive; };
+struct Enemy {sf::Vector2f worldPos; float hp, maxHp, speed, flashTimer; bool alive; int type; float zigzagTimer; };
 
 struct XpOrb { sf::Vector2f worldPos; int value; bool alive; };
+
+struct HpOrb { sf::Vector2f worldPos; bool alive; };
+
+struct BoostOrb {
+    sf::Vector2f worldPos;
+    bool  alive;
+    int   type; // 0=SpeedCore, 1=Overclock, 2=DataSurge, 3=Overload, 4=GhostProtocol
+};
 
 class Game {
 public:
@@ -32,10 +40,24 @@ private:
     std::vector<Enemy> enemies;
 
     std::vector<XpOrb> xpOrbs;
+
     float xpSpawnTimer = 0.f;
     int   playerXp     = 0;
     int   playerLevel  = 1;
     int   xpToNext     = 10;
+
+    std::vector<HpOrb>   hpOrbs;
+
+    float hpSpawnTimer    = 0.f;
+    float boostSpawnTimer = 0.f;
+
+    std::vector<BoostOrb> boostOrbs;
+
+    float boostSpeedTimer    = 0.f;
+    float boostFireTimer     = 0.f;
+    float boostMagnetTimer   = 0.f;
+    float boostDmgTimer      = 0.f;
+    float boostGhostTimer    = 0.f;
 
     // Fale
     int       waveNumber        = 0;
@@ -51,7 +73,7 @@ private:
     std::vector<Bullet> bullets;
     float fireTimer = 0.f;
     float invincTimer = 0.f;
-    int   playerHp    = 100;
+    int   playerHp    = 100000;
 
     // Gracz
     sf::Vector2f    playerPos = {0.f, 0.f};
@@ -82,4 +104,13 @@ private:
     void updateXpOrbs(float dt);
     void drawXpOrbs();
     void checkXpPickup();
+    void spawnHpOrb(sf::Vector2f pos);
+    void spawnBoostOrb(sf::Vector2f pos, int type);
+    void updateHpOrbs(float dt);
+    void updateBoostOrbs(float dt);
+    void drawHpOrbs();
+    void drawBoostOrbs();
+    void checkHpPickup();
+    void checkBoostPickup();
+    void tickBoosts(float dt);
 };
