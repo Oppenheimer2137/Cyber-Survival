@@ -108,6 +108,7 @@ void Game::update(float dt) {
         updateWave(dt);
         updateEnemies(dt);
 
+        fireTimer -= dt;
         findAndShoot();
         updateBullets(dt);
         if (invincTimer > 0.f) invincTimer -= dt;
@@ -138,6 +139,7 @@ void Game::update(float dt) {
     checkHpPickup();
     checkBoostPickup();
     tickBoosts(dt);
+    updateParticles(dt);
     }
 
 
@@ -147,7 +149,7 @@ void Game::update(float dt) {
 void Game::render() {
     window.clear(sf::Color(2, 5, 12));
     drawBG();
-    if (state == State::Playing) {drawXpOrbs(); drawHpOrbs(); drawBoostOrbs(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
+    if (state == State::Playing) {drawParticles(); drawXpOrbs(); drawHpOrbs(); drawBoostOrbs(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
     if (state == State::Menu)    drawMenu();
     if (state == State::GameOver) drawGameOver();
     window.display();
@@ -210,6 +212,7 @@ void Game::spawnEnemy() {
     e.worldPos    = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
     e.flashTimer  = 0.f;
     e.alive       = true;
+    e.isBoss = false;
     e.zigzagTimer = 0.f;
 
     int maxType = (waveNumber < 3) ? 0 : (waveNumber < 6) ? 1 : 2;
@@ -237,11 +240,17 @@ void Game::spawnEnemy() {
 
 void Game::startWave() {
     waveNumber++;
-    waveEnemiesSpawn  = 8 + waveNumber * 3;
-    waveEnemiesLeft   = waveEnemiesSpawn;
-    waveSpawnTimer    = 0.f;
-    waveSpawnInterval = std::max(0.4f, 1.5f - waveNumber * 0.05f);
-    waveState         = WaveState::Spawning;
+    if (waveNumber % 5 == 0) {
+        spawnBoss();
+        waveEnemiesLeft  = 0;
+        waveState        = WaveState::WaitingClear;
+    } else {
+        waveEnemiesSpawn  = 8 + waveNumber * 3;
+        waveEnemiesLeft   = waveEnemiesSpawn;
+        waveSpawnTimer    = 0.f;
+        waveSpawnInterval = std::max(0.4f, 1.5f - waveNumber * 0.05f);
+        waveState         = WaveState::Spawning;
+    }
 }
 
 void Game::updateWave(float dt) {
@@ -302,6 +311,34 @@ void Game::drawEnemies() {
         if (!e.alive) continue;
 
         sf::Color col;
+
+        if (e.isBoss) {
+            float pulse = 26.f + 6.f * std::sin(globalTime * 3.f);
+            shape.setRadius(pulse);
+            shape.setOrigin(pulse, pulse);
+            shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : sf::Color(255, 180, 0));
+            shape.setOutlineColor(sf::Color(255, 220, 0));
+            sf::Vector2f scr = worldToScreen(e.worldPos, playerPos);
+            if (!isOnScreen(scr, 40.f)) continue;
+            shape.setPosition(scr);
+            window.draw(shape);
+
+    // pasek HP nad bossem
+            float bw = 80.f;
+            float bf = bw * (e.hp / e.maxHp);
+            sf::RectangleShape bbg({bw, 6.f});
+            bbg.setOrigin(bw/2.f, 0.f);
+            bbg.setPosition(scr.x, scr.y - pulse - 12.f);
+            bbg.setFillColor(sf::Color(60, 0, 0));
+            window.draw(bbg);
+            sf::RectangleShape bbf({bf, 6.f});
+            bbf.setOrigin(bw/2.f, 0.f);
+            bbf.setPosition(scr.x, scr.y - pulse - 12.f);
+            bbf.setFillColor(sf::Color(255, 180, 0));
+            window.draw(bbf);
+            continue;
+            }
+
         switch(e.type) {
             case 0: col = sf::Color(180, 30,  30);  break; // Virus
             case 1: col = sf::Color(60,  220, 120); break; // Worm
@@ -322,7 +359,8 @@ shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : col);
 void Game::checkPlayerHit() {
     for (auto& e : enemies) {
         if (!e.alive) continue;
-        if (vlen(e.worldPos - playerPos) < 12.f + 14.f) {
+        float eRadius = e.isBoss ? 26.f : (e.type == 2 ? 18.f : 12.f);
+        if (vlen(e.worldPos - playerPos) < eRadius + 14.f) {
             if (invincTimer <= 0.f) {
                 playerHp -= 10;
                 invincTimer = 1.f;
@@ -333,7 +371,6 @@ void Game::checkPlayerHit() {
 }
 
 void Game::findAndShoot() {
-    fireTimer -= 0.016f;
     if (fireTimer > 0.f) return;
 
     Enemy* target = nullptr;
@@ -369,9 +406,14 @@ void Game::updateBullets(float dt) {
                 e.flashTimer = 0.1f;
                 b.alive = false;
                 if (e.hp <= 0.f) {
-                e.alive = false;
-                if (frand() < 0.2f) spawnXpOrb(e.worldPos, 1);
-                if (e.type == 2 && frand() < 0.15f) spawnBoostOrb(e.worldPos, rand() % 5);
+                    e.alive = false;
+                    if (frand() < 0.2f) spawnXpOrb(e.worldPos, 1);
+                    if (e.type == 2 && frand() < 0.15f) spawnBoostOrb(e.worldPos, rand() % 5);
+                    sf::Color col = e.isBoss ? sf::Color(255,180,0) :
+                    e.type == 1 ? sf::Color(60,220,120) :
+                    e.type == 2 ? sf::Color(120,120,140) :
+                                  sf::Color(180,30,30);
+                    spawnParticles(e.worldPos, col, e.isBoss ? 20 : 8);
 }
                 break;
             }
@@ -695,4 +737,74 @@ void Game::resetGame() {
     hpOrbs.clear();
     boostOrbs.clear();
     playerShape.setRotation(0.f);
+    waveSpawnInterval = 1.5f;
+}
+
+void Game::spawnBoss() {
+    float angle = frand() * 2.f * GPI;
+    float dist  = 600.f;
+
+    Enemy e;
+    e.worldPos    = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
+    e.flashTimer  = 0.f;
+    e.alive       = true;
+    e.isBoss      = true;
+    e.zigzagTimer = 0.f;
+    e.type        = 0;
+
+    // statystyki rosną z każdym bossem
+    int bossIndex = waveNumber / 5;
+    e.hp    = 300.f + bossIndex * 150.f;
+    e.maxHp = e.hp;
+    e.speed = 55.f  + bossIndex * 5.f;
+
+    enemies.push_back(e);
+}
+
+void Game::spawnParticles(sf::Vector2f pos, sf::Color col, int n) {
+    for (int i = 0; i < n; ++i) {
+        Particle p;
+        p.worldPos = pos;
+        float angle = frand() * 2.f * GPI;
+        float spd   = frandr(60.f, 220.f);
+        p.vel       = sf::Vector2f(std::cos(angle)*spd, std::sin(angle)*spd);
+        p.radius    = frandr(2.f, 5.f);
+        p.lifetime  = frandr(0.3f, 0.8f);
+        p.maxLife   = p.lifetime;
+        p.color     = col;
+        p.alive     = true;
+        particles.push_back(p);
+    }
+}
+
+void Game::updateParticles(float dt) {
+    for (auto& p : particles) {
+        if (!p.alive) continue;
+        p.worldPos += p.vel * dt;
+        p.vel      *= 0.92f;
+        p.lifetime -= dt;
+        if (p.lifetime <= 0.f) p.alive = false;
+    }
+    particles.erase(
+        std::remove_if(particles.begin(), particles.end(),
+                       [](const Particle& p){ return !p.alive; }),
+        particles.end()
+    );
+}
+
+void Game::drawParticles() {
+    sf::CircleShape shape;
+    for (auto& p : particles) {
+        if (!p.alive) continue;
+        sf::Vector2f scr = worldToScreen(p.worldPos, playerPos);
+        if (!isOnScreen(scr, 20.f)) continue;
+        float alpha = p.lifetime / p.maxLife;
+        sf::Color col = p.color;
+        col.a = (sf::Uint8)(alpha * 255.f);
+        shape.setRadius(p.radius * alpha);
+        shape.setOrigin(p.radius * alpha, p.radius * alpha);
+        shape.setFillColor(col);
+        shape.setPosition(scr);
+        window.draw(shape);
+    }
 }

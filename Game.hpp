@@ -6,7 +6,7 @@
 
 struct Star { sf::Vector2f worldPos; float r, bright, twSpd, twPhase; };
 
-struct Enemy {sf::Vector2f worldPos; float hp, maxHp, speed, flashTimer; bool alive; int type; float zigzagTimer; };
+struct Enemy {sf::Vector2f worldPos; float hp, maxHp, speed, flashTimer; bool alive, isBoss; int type; float zigzagTimer; };
 
 struct XpOrb { sf::Vector2f worldPos; int value; bool alive; };
 
@@ -16,6 +16,13 @@ struct BoostOrb {
     sf::Vector2f worldPos;
     bool  alive;
     int   type; // 0=SpeedCore, 1=Overclock, 2=DataSurge, 3=Overload, 4=GhostProtocol
+};
+
+struct Particle {
+    sf::Vector2f worldPos, vel;
+    float radius, lifetime, maxLife;
+    sf::Color color;
+    bool alive;
 };
 
 class Game {
@@ -58,6 +65,8 @@ private:
     float boostMagnetTimer   = 0.f;
     float boostDmgTimer      = 0.f;
     float boostGhostTimer    = 0.f;
+
+    std::vector<Particle> particles;
 
     // Fale
     int       waveNumber        = 0;
@@ -118,6 +127,10 @@ private:
     void checkBoostPickup();
     void tickBoosts(float dt);\
     void resetGame();
+    void spawnBoss();
     void tryDash();
     void tickDash(float dt);
+    void spawnParticles(sf::Vector2f pos, sf::Color col, int n);
+    void updateParticles(float dt);
+    void drawParticles();
 };
