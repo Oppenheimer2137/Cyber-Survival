@@ -18,6 +18,7 @@ Game::Game() {
     loadFont();
     buildStars();
     buildPlayerShape();
+    upgradePool = getUpgradePool();
 }
 
 void Game::run() {
@@ -78,6 +79,11 @@ void Game::handleEvents() {
                 resetGame();
                 state = State::Menu;
 
+            }
+            if (ev.type == sf::Event::KeyPressed && state == State::LevelUp) {
+                if (ev.key.code == sf::Keyboard::Num1) applyUpgrade(0);
+                if (ev.key.code == sf::Keyboard::Num2) applyUpgrade(1);
+                if (ev.key.code == sf::Keyboard::Num3) applyUpgrade(2);
             }
         }
     }
@@ -152,6 +158,7 @@ void Game::render() {
     if (state == State::Playing) {drawParticles(); drawXpOrbs(); drawHpOrbs(); drawBoostOrbs(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
     if (state == State::Menu)    drawMenu();
     if (state == State::GameOver) drawGameOver();
+    if (state == State::LevelUp) drawLevelUp();
     window.display();
 }
 
@@ -564,7 +571,11 @@ void Game::checkXpPickup() {
                 playerXp  -= xpToNext;
                 playerLevel++;
                 xpToNext   = playerLevel * 10;
-                // miejsce na power-up
+                pendingLevelUps++;
+                if (pendingLevelUps > 0) {
+                    buildUpgradeChoices();
+                    state = State::LevelUp;
+                }
             }
         }
     }
@@ -807,4 +818,143 @@ void Game::drawParticles() {
         shape.setPosition(scr);
         window.draw(shape);
     }
+    }
+
+ void Game::buildUpgradeChoices() {
+    upgradeChoices.clear();
+
+    // Suma wag
+    float totalWeight = 0.f;
+    for (auto& u : upgradePool)
+        if (u.level < u.maxLevel) totalWeight += u.weight;
+
+    if (totalWeight <= 0.f) return;
+
+    // Losuj 3 unikalne
+    std::vector<Upgrade*> available;
+    for (auto& u : upgradePool)
+        if (u.level < u.maxLevel) available.push_back(&u);
+
+    for (int i = 0; i < 3 && !available.empty(); ++i) {
+        float roll = frand() * totalWeight;
+        float acc  = 0.f;
+        for (int j = 0; j < (int)available.size(); ++j) {
+            acc += available[j]->weight;
+            if (roll <= acc) {
+                upgradeChoices.push_back(available[j]);
+                totalWeight -= available[j]->weight;
+                available.erase(available.begin() + j);
+                break;
+            }
+        }
+    }
 }
+
+void Game::applyUpgrade(int idx) {
+    if (idx >= (int)upgradeChoices.size()) return;
+
+    Upgrade* chosen = upgradeChoices[idx];
+    chosen->level++;
+    chosen->weight += 5.f; // częściej się pojawia po wybraniu
+
+    // Reset wagi dla zignorowanych
+    for (auto* u : upgradeChoices)
+        if (u != chosen) u->weight = u->baseWeight;
+
+    upgradeChoices.clear();
+    pendingLevelUps--;
+
+    if (pendingLevelUps > 0) {
+        buildUpgradeChoices();
+    } else {
+        state = State::Playing;
+    }
+}
+
+void Game::drawLevelUp() {
+    // Przyciemnione tło
+    sf::RectangleShape overlay({GW, GH});
+    overlay.setFillColor(sf::Color(0, 0, 0, 160));
+    window.draw(overlay);
+
+    if (font.getInfo().family.empty()) return;
+
+    sf::Text title;
+    title.setFont(font);
+    title.setString("LEVEL UP!");
+    title.setCharacterSize(48);
+    title.setFillColor(sf::Color(40, 160, 255));
+    centerText(title, GW/2.f, GH*0.18f);
+    window.draw(title);
+
+    sf::Text hint;
+    hint.setFont(font);
+    hint.setString("[ 1 ]          [ 2 ]          [ 3 ]");
+    hint.setCharacterSize(20);
+    hint.setFillColor(sf::Color(160, 160, 160));
+    centerText(hint, GW/2.f, GH*0.88f);
+    window.draw(hint);
+
+    // 3 karty
+    float cardW = 280.f, cardH = 340.f;
+    float startX = GW/2.f - cardW*1.5f - 20.f;
+
+    for (int i = 0; i < (int)upgradeChoices.size(); ++i) {
+        Upgrade* u = upgradeChoices[i];
+        float cx = startX + i * (cardW + 20.f);
+        float cy = GH/2.f - cardH/2.f;
+
+        // Tło karty
+        sf::RectangleShape card({cardW, cardH});
+        card.setPosition(cx, cy);
+        card.setFillColor(sf::Color(10, 15, 30, 220));
+        card.setOutlineColor(u->color);
+        card.setOutlineThickness(2.f);
+        window.draw(card);
+
+        // Nazwa
+        sf::Text name;
+        name.setFont(font);
+        name.setString(u->name);
+        name.setCharacterSize(22);
+        name.setFillColor(u->color);
+        centerText(name, cx + cardW/2.f, cy + 30.f);
+        window.draw(name);
+
+        // Poziom
+        sf::Text lvl;
+        lvl.setFont(font);
+        lvl.setString("LVL " + std::to_string(u->level) + " / " + std::to_string(u->maxLevel));
+        lvl.setCharacterSize(16);
+        lvl.setFillColor(sf::Color(140, 140, 140));
+        centerText(lvl, cx + cardW/2.f, cy + 65.f);
+        window.draw(lvl);
+
+        // Opis
+        sf::Text desc;
+        desc.setFont(font);
+        desc.setString(u->desc);
+        desc.setCharacterSize(16);
+        desc.setFillColor(sf::Color(200, 200, 200));
+        desc.setPosition(cx + 10.f, cy + 100.f);
+        window.draw(desc);
+
+        // Rzadkość
+        std::string rarStr;
+        sf::Color rarCol;
+        switch(u->rarity) {
+            case Rarity::Common:    rarStr="COMMON";    rarCol=sf::Color(180,180,180); break;
+            case Rarity::Rare:      rarStr="RARE";      rarCol=sf::Color(40,160,255);  break;
+            case Rarity::Epic:      rarStr="EPIC";      rarCol=sf::Color(180,80,255);  break;
+            case Rarity::Legendary: rarStr="LEGENDARY"; rarCol=sf::Color(255,180,0);   break;
+        }
+        sf::Text rar;
+        rar.setFont(font);
+        rar.setString(rarStr);
+        rar.setCharacterSize(14);
+        rar.setFillColor(rarCol);
+        centerText(rar, cx + cardW/2.f, cy + cardH - 30.f);
+        window.draw(rar);
+    }
+}
+
