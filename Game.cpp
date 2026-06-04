@@ -74,8 +74,11 @@ void Game::handleEvents() {
             if (ev.key.code == sf::Keyboard::Escape) window.close();
             if (ev.key.code == sf::Keyboard::Return && state == State::Menu)
                 state = State::Playing;
-            if (ev.key.code == sf::Keyboard::Return && state == State::GameOver)
+            if (ev.key.code == sf::Keyboard::Return && state == State::GameOver) {
+                resetGame();
                 state = State::Menu;
+
+            }
         }
     }
 }
@@ -92,6 +95,9 @@ void Game::update(float dt) {
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::A))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))) dir.x -= 1.f;
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::D))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))) dir.x += 1.f;
         playerPos += vnorm(dir) * PLAYER_SPD * dt;
+
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) tryDash();
+        tickDash(dt);
 
         // Obróć sie w kierunku ruchu
         if (vlen(dir) > 0.01f) {
@@ -418,6 +424,17 @@ void Game::drawHUD() {
     xpBar.setFillColor(sf::Color(40, 160, 255));
     window.draw(xpBar);
 
+    float dashBarW  = 80.f;
+    float dashFill  = dashBarW * (1.f - std::min(dashCd / 2.0f, 1.f));
+    sf::RectangleShape dashBg({dashBarW, 8.f});
+    dashBg.setPosition(x + barW + 16.f, y);
+    dashBg.setFillColor(sf::Color(20, 20, 60));
+    window.draw(dashBg);
+    sf::RectangleShape dashFillBar({dashFill, 8.f});
+    dashFillBar.setPosition(x + barW + 16.f, y);
+    dashFillBar.setFillColor(dashing ? sf::Color(255,255,255) : sf::Color(100, 180, 255));
+    window.draw(dashFillBar);
+
     if (font.getInfo().family.empty()) return;
     sf::Text t;
     t.setFont(font);
@@ -613,4 +630,69 @@ void Game::drawBoostOrbs() {
         shape.setPosition(scr);
         window.draw(shape);
     }
+}
+
+void Game::tryDash() {
+    if (dashCd > 0.f || dashing) return;
+
+    sf::Vector2f dir(0.f, 0.f);
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W) ||
+        sf::Keyboard::isKeyPressed(sf::Keyboard::Up))    dir.y -= 1.f;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::S) ||
+        sf::Keyboard::isKeyPressed(sf::Keyboard::Down))  dir.y += 1.f;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::A) ||
+        sf::Keyboard::isKeyPressed(sf::Keyboard::Left))  dir.x -= 1.f;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::D) ||
+        sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) dir.x += 1.f;
+
+    if (vlen(dir) < 0.01f) return; // brak kierunku — nie dashuj
+
+    dashing   = true;
+    dashDir   = vnorm(dir);
+    dashTimer = 0.17f;
+    dashCd    = 2.0f;
+    invincTimer = 0.17f; // nietykalny podczas dashu
+}
+
+void Game::tickDash(float dt) {
+    if (dashCd > 0.f) dashCd -= dt;
+
+    if (!dashing) return;
+    dashTimer -= dt;
+    playerPos += dashDir * 750.f * dt;
+
+    if (dashTimer <= 0.f) dashing = false;
+}
+
+void Game::resetGame() {
+    playerHp       = 100;
+    playerXp       = 0;
+    playerLevel    = 1;
+    xpToNext       = 10;
+    playerPos      = {0.f, 0.f};
+    fireTimer      = 0.f;
+    invincTimer    = 0.f;
+    dashCd         = 0.f;
+    dashTimer      = 0.f;
+    dashing        = false;
+    waveNumber     = 0;
+    waveEnemiesLeft   = 0;
+    waveEnemiesSpawn  = 0;
+    waveSpawnTimer    = 0.f;
+    waveClearTimer    = 0.f;
+    waveState      = WaveState::Countdown;
+    xpSpawnTimer   = 0.f;
+    hpSpawnTimer   = 0.f;
+    boostSpawnTimer = 0.f;
+    boostSpeedTimer = 0.f;
+    boostFireTimer  = 0.f;
+    boostMagnetTimer = 0.f;
+    boostDmgTimer   = 0.f;
+    boostGhostTimer = 0.f;
+    enemies.clear();
+    bullets.clear();
+    xpOrbs.clear();
+    hpOrbs.clear();
+    boostOrbs.clear();
+    playerShape.setRotation(0.f);
 }

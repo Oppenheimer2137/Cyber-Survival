@@ -74,6 +74,11 @@ private:
     float fireTimer = 0.f;
     float invincTimer = 0.f;
     int   playerHp    = 100;
+    // Dash
+    sf::Vector2f dashDir;
+    float dashTimer  = 0.f;
+    float dashCd     = 0.f;
+    bool  dashing    = false;
 
     // Gracz
     sf::Vector2f    playerPos = {0.f, 0.f};
@@ -82,7 +87,6 @@ private:
     void loadFont();
     void buildStars();
     void buildPlayerShape();
-
     void handleEvents();
     void update(float dt);
     void render();
@@ -112,5 +116,8 @@ private:
     void drawBoostOrbs();
     void checkHpPickup();
     void checkBoostPickup();
-    void tickBoosts(float dt);
+    void tickBoosts(float dt);\
+    void resetGame();
+    void tryDash();
+    void tickDash(float dt);
 };
