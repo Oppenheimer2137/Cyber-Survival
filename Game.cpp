@@ -100,7 +100,7 @@ void Game::update(float dt) {
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::S))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))) dir.y += 1.f;
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::A))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))) dir.x -= 1.f;
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::D))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))) dir.x += 1.f;
-        playerPos += vnorm(dir) * PLAYER_SPD * dt;
+        playerPos += vnorm(dir) * PLAYER_SPD * playerSpeedMult * dt;
 
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) tryDash();
         tickDash(dt);
@@ -118,6 +118,9 @@ void Game::update(float dt) {
         findAndShoot();
         updateBullets(dt);
         if (invincTimer > 0.f) invincTimer -= dt;
+
+        if (playerHpRegen > 0.f) playerHp = std::min(playerMaxHp, playerHp + (int)(playerHpRegen * dt));
+
         checkPlayerHit();
         xpSpawnTimer += dt;
         if (xpSpawnTimer >= 3.f) {
@@ -146,6 +149,7 @@ void Game::update(float dt) {
     checkBoostPickup();
     tickBoosts(dt);
     updateParticles(dt);
+    tickWeapons(dt);
     }
 
 
@@ -155,7 +159,7 @@ void Game::update(float dt) {
 void Game::render() {
     window.clear(sf::Color(2, 5, 12));
     drawBG();
-    if (state == State::Playing) {drawParticles(); drawXpOrbs(); drawHpOrbs(); drawBoostOrbs(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();}
+    if (state == State::Playing) {drawParticles(); drawXpOrbs(); drawHpOrbs(); drawBoostOrbs(); drawEnemies(); drawBullets(); drawWeapons(); drawPlayer(); drawHUD();}
     if (state == State::Menu)    drawMenu();
     if (state == State::GameOver) drawGameOver();
     if (state == State::LevelUp) drawLevelUp();
@@ -293,6 +297,7 @@ void Game::updateEnemies(float dt) {
     for (auto& e : enemies) {
         if (!e.alive) continue;
         if (e.flashTimer > 0.f) e.flashTimer -= dt;
+        if (e.frozenTimer > 0.f) { e.frozenTimer -= dt; continue; }
         if (e.type == 1) {
             e.zigzagTimer += dt;
             sf::Vector2f toPlayer = vnorm(playerPos - e.worldPos);
@@ -351,9 +356,9 @@ void Game::drawEnemies() {
             case 1: col = sf::Color(60,  220, 120); break; // Worm
             case 2: col = sf::Color(120, 120, 140); break; // Exploit
     }
-shape.setRadius(e.type == 2 ? 18.f : 12.f);
-shape.setOrigin(shape.getRadius(), shape.getRadius());
-shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : col);
+    shape.setRadius(e.type == 2 ? 18.f : 12.f);
+    shape.setOrigin(shape.getRadius(), shape.getRadius());
+    shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : col);
 
         sf::Vector2f scr = worldToScreen(e.worldPos, playerPos);
         if (!isOnScreen(scr, 20.f)) continue;
@@ -368,7 +373,7 @@ void Game::checkPlayerHit() {
         if (!e.alive) continue;
         float eRadius = e.isBoss ? 26.f : (e.type == 2 ? 18.f : 12.f);
         if (vlen(e.worldPos - playerPos) < eRadius + 14.f) {
-            if (invincTimer <= 0.f) {
+            if (invincTimer <= 0.f && boostGhostTimer <= 0.f) {
                 playerHp -= 10;
                 invincTimer = 1.f;
                 if (playerHp <= 0) state = State::GameOver;
@@ -389,7 +394,9 @@ void Game::findAndShoot() {
     }
     if (!target) return;
 
-    fireTimer = 3.2f;
+    float effectiveCd = playerFireRate * (1.f - playerCdr);
+    if (effectiveCd < 0.3f) effectiveCd = 0.3f;
+    fireTimer = effectiveCd;
     Bullet b;
     b.worldPos = playerPos;
     b.dir      = vnorm(target->worldPos - playerPos);
@@ -409,7 +416,8 @@ void Game::updateBullets(float dt) {
         for (auto& e : enemies) {
             if (!e.alive) continue;
             if (vlen(b.worldPos - e.worldPos) < 5.f + 12.f) {
-                e.hp -= 10.f;
+                float dmg = playerAtk * (boostDmgTimer > 0.f ? 2.f : 1.f);
+                e.hp -= dmg;
                 e.flashTimer = 0.1f;
                 b.alive = false;
                 if (e.hp <= 0.f) {
@@ -520,6 +528,18 @@ void Game::drawHUD() {
         centerText(t, GW / 2.f, GH * 0.25f);
         window.draw(t);
     }
+
+    if (font.getInfo().family.empty()) return;
+    sf::Text bt;
+    bt.setFont(font);
+    bt.setCharacterSize(14);
+    float bx = GW - 200.f;
+    float by = 80.f;
+    if (boostSpeedTimer  > 0.f) { bt.setString("SPEED CORE  " + std::to_string((int)boostSpeedTimer)  + "s"); bt.setFillColor(sf::Color(255,200,0));   bt.setPosition(bx,by);    window.draw(bt); by+=20.f; }
+    if (boostFireTimer   > 0.f) { bt.setString("OVERCLOCK   " + std::to_string((int)boostFireTimer)   + "s"); bt.setFillColor(sf::Color(255,100,0));   bt.setPosition(bx,by);    window.draw(bt); by+=20.f; }
+    if (boostMagnetTimer > 0.f) { bt.setString("DATA SURGE  " + std::to_string((int)boostMagnetTimer) + "s"); bt.setFillColor(sf::Color(0,200,255));   bt.setPosition(bx,by);    window.draw(bt); by+=20.f; }
+    if (boostDmgTimer    > 0.f) { bt.setString("OVERLOAD    " + std::to_string((int)boostDmgTimer)    + "s"); bt.setFillColor(sf::Color(220,0,220));   bt.setPosition(bx,by);    window.draw(bt); by+=20.f; }
+    if (boostGhostTimer  > 0.f) { bt.setString("GHOST PROTO " + std::to_string((int)boostGhostTimer)  + "s"); bt.setFillColor(sf::Color(220,220,220)); bt.setPosition(bx,by);    window.draw(bt); by+=20.f; }
 }
 
 void Game::drawGameOver() {
@@ -558,7 +578,7 @@ void Game::updateXpOrbs(float dt) {
 
 void Game::checkXpPickup() {
     const float pickupRadius = 30.f;
-    const float magnetRadius = 150.f;
+    const float magnetRadius = playerMagnet;
     for (auto& orb : xpOrbs) {
         if (!orb.alive) continue;
         float d = vlen(orb.worldPos - playerPos);
@@ -570,7 +590,7 @@ void Game::checkXpPickup() {
             if (playerXp >= xpToNext) {
                 playerXp  -= xpToNext;
                 playerLevel++;
-                xpToNext   = playerLevel * 10;
+                xpToNext = 5 * std::pow(1.15f, playerLevel - 1);
                 pendingLevelUps++;
                 if (pendingLevelUps > 0) {
                     buildUpgradeChoices();
@@ -643,11 +663,17 @@ void Game::checkBoostPickup() {
 }
 
 void Game::tickBoosts(float dt) {
-    if (boostSpeedTimer  > 0.f) boostSpeedTimer  -= dt;
-    if (boostFireTimer   > 0.f) boostFireTimer   -= dt;
-    if (boostMagnetTimer > 0.f) boostMagnetTimer -= dt;
-    if (boostDmgTimer    > 0.f) boostDmgTimer    -= dt;
-    if (boostGhostTimer  > 0.f) boostGhostTimer  -= dt;
+    if (boostSpeedTimer  > 0.f) { boostSpeedTimer  -= dt; playerSpeedMult = 1.f + 0.5f; }
+    else                          playerSpeedMult = 1.f;
+
+    if (boostFireTimer   > 0.f) { boostFireTimer   -= dt; playerFireRate = 1.6f; }
+    else                          playerFireRate = 3.2f;
+
+    if (boostMagnetTimer > 0.f) { boostMagnetTimer -= dt; playerMagnet = 150.f + 300.f; }
+    else                          playerMagnet = 150.f;
+
+    if (boostDmgTimer    > 0.f) { boostDmgTimer    -= dt; }
+    if (boostGhostTimer  > 0.f) { boostGhostTimer  -= dt; }
 }
 
 void Game::drawHpOrbs() {
@@ -721,7 +747,7 @@ void Game::resetGame() {
     playerHp       = 100;
     playerXp       = 0;
     playerLevel    = 1;
-    xpToNext       = 10;
+    xpToNext       = 5;
     playerPos      = {0.f, 0.f};
     fireTimer      = 0.f;
     invincTimer    = 0.f;
@@ -749,6 +775,26 @@ void Game::resetGame() {
     boostOrbs.clear();
     playerShape.setRotation(0.f);
     waveSpawnInterval = 1.5f;
+    playerAtk       = 10.f;
+    playerSpeedMult = 1.f;
+    playerFireRate  = 3.2f;
+    playerMaxHp     = 100;
+    playerMagnet    = 150.f;
+    playerCdr       = 0.f;
+    playerHpRegen   = 0.f;
+    upgradePool     = getUpgradePool();
+    pendingLevelUps = 0;
+    upgradeChoices.clear();
+    hasOrbitalNode = hasChainShock = hasFrostBurst = hasVirusBomb = false;
+    hasStaticStorm = hasDataVortex = hasCoreDropWeapon = hasCorruptionZone = false;
+    hasShockGrid   = hasPacketFlood = hasOverburn = hasCryoSweep = false;
+    hasEmpFlash    = hasLaserRay = false;
+    orbitalLevel = chainShockLevel = frostBurstLevel = virusBombLevel = 0;
+    staticStormLevel = dataVortexLevel = coreDropLevel = corruptionLevel = 0;
+    shockGridLevel = packetFloodLevel = overburnLevel = cryoSweepLevel = 0;
+    empFlashLevel = laserRayLevel = 0;
+    weaponEffects.clear();
+    corruptionZones.clear();
 }
 
 void Game::spawnBoss() {
@@ -855,11 +901,58 @@ void Game::applyUpgrade(int idx) {
 
     Upgrade* chosen = upgradeChoices[idx];
     chosen->level++;
-    chosen->weight += 5.f; // częściej się pojawia po wybraniu
+    chosen->weight += 5.f;
 
-    // Reset wagi dla zignorowanych
+    // Reset wagi zignorowanych
     for (auto* u : upgradeChoices)
         if (u != chosen) u->weight = u->baseWeight;
+
+    // ── Faktyczne efekty ─────────────────────────────────
+    const std::string& id = chosen->id;
+
+    if (id == "ghost_process") {
+        playerSpeedMult += 0.08f;               // +8% prędkości
+    } else if (id == "pulse_bolt") {
+        playerAtk *= 1.10f;                     // +10% obrażeń
+    } else if (id == "firewall_shield") {
+        playerMaxHp += 15;
+        playerHp = std::min(playerHp + 15, playerMaxHp);
+    } else if (id == "encryption_ring") {
+        playerHpRegen += 1.f;                   // +1 HP/s
+    } else if (id == "data_bolt") {
+        // wielokrotne pociski — obsłużymy przy strzelaniu
+        // na razie zwiększamy obrażenia jako kompensata
+        playerAtk *= 1.15f;
+    } else if (id == "chain_shock") {
+        hasChainShock = true; chainShockLevel++;
+    } else if (id == "frost_burst") {
+        hasFrostBurst = true; frostBurstLevel++;
+    } else if (id == "virus_bomb") {
+        hasVirusBomb = true; virusBombLevel++;
+    } else if (id == "orbital_node") {
+        hasOrbitalNode = true; orbitalLevel++;
+    } else if (id == "static_storm") {
+        hasStaticStorm = true; staticStormLevel++;
+    } else if (id == "data_vortex") {
+        hasDataVortex = true; dataVortexLevel++;
+        playerMagnet += 40.f;
+    } else if (id == "core_drop") {
+        hasCoreDropWeapon = true; coreDropLevel++;
+    } else if (id == "corruption_zone") {
+        hasCorruptionZone = true; corruptionLevel++;
+    } else if (id == "shock_grid") {
+        hasShockGrid = true; shockGridLevel++;
+    } else if (id == "packet_flood") {
+        hasPacketFlood = true; packetFloodLevel++;
+    } else if (id == "overburn") {
+        hasOverburn = true; overburnLevel++;
+    } else if (id == "cryo_sweep") {
+        hasCryoSweep = true; cryoSweepLevel++;
+    } else if (id == "emp_flash") {
+        hasEmpFlash = true; empFlashLevel++;
+    } else if (id == "laser_ray") {
+        hasLaserRay = true; laserRayLevel++;
+    }
 
     upgradeChoices.clear();
     pendingLevelUps--;
@@ -955,6 +1048,440 @@ void Game::drawLevelUp() {
         rar.setFillColor(rarCol);
         centerText(rar, cx + cardW/2.f, cy + cardH - 30.f);
         window.draw(rar);
+    }
+}
+
+void Game::hitEnemiesInRadius(sf::Vector2f pos, float radius, float dmg,
+                               sf::Color col, bool freeze) {
+    for (auto& e : enemies) {
+        if (!e.alive) continue;
+        if (vlen(e.worldPos - pos) < radius) {
+            e.hp -= dmg;
+            e.flashTimer = 0.15f;
+            if (freeze) e.frozenTimer = 1.5f + frostBurstLevel * 0.3f;
+            if (e.hp <= 0.f) {
+                e.alive = false;
+                spawnXpOrb(e.worldPos, 1);
+                spawnParticles(e.worldPos, col, 6);
+            }
+        }
+    }
+    // Efekt wizualny
+    WeaponEffect ef;
+    ef.worldPos = pos;
+    ef.radius   = 0.f;
+    ef.alpha    = 200.f;
+    ef.lifetime = 0.3f;
+    ef.color    = col;
+    ef.alive    = true;
+    weaponEffects.push_back(ef);
+}
+
+void Game::tickWeapons(float dt) {
+
+    // ── Orbital Node — krąży wokół gracza ────────────────
+    if (hasOrbitalNode) {
+        orbitalAngle += (1.5f + orbitalLevel * 0.2f) * dt;
+        float orbitR = 80.f + orbitalLevel * 10.f;
+        sf::Vector2f orbPos = playerPos + sf::Vector2f(
+            std::cos(orbitalAngle) * orbitR,
+            std::sin(orbitalAngle) * orbitR);
+        // zadaje obrażenia dotykając wrogów
+        for (auto& e : enemies) {
+            if (!e.alive) continue;
+            if (vlen(e.worldPos - orbPos) < 18.f) {
+                e.hp -= (playerAtk * 0.5f) * dt;
+                e.flashTimer = 0.1f;
+                if (e.hp <= 0.f) {
+                    e.alive = false;
+                    spawnXpOrb(e.worldPos, 1);
+                    spawnParticles(e.worldPos, sf::Color(255,180,0), 6);
+                }
+            }
+        }
+    }
+
+    // ── Chain Shock — łańcuch co 2s ──────────────────────
+    if (hasChainShock) {
+        chainShockCd -= dt;
+        if (chainShockCd <= 0.f) {
+            chainShockCd = 2.0f - chainShockLevel * 0.15f;
+            // znajdź najbliższego, potem łańcuch
+            Enemy* first = nullptr; float bd = 1e9f;
+            for (auto& e : enemies) {
+                if (!e.alive) continue;
+                float d = vlen(e.worldPos - playerPos);
+                if (d < 400.f && d < bd) { bd = d; first = &e; }
+            }
+            if (first) {
+                float dmg = playerAtk * (1.f + chainShockLevel * 0.2f);
+                first->hp -= dmg; first->flashTimer = 0.15f;
+                // łańcuch do następnych
+                sf::Vector2f lastPos = first->worldPos;
+                int chains = 2 + chainShockLevel;
+                for (int c = 0; c < chains; ++c) {
+                    Enemy* next = nullptr; float nd = 1e9f;
+                    for (auto& e : enemies) {
+                        if (!e.alive || &e == first) continue;
+                        float d = vlen(e.worldPos - lastPos);
+                        if (d < 200.f && d < nd) { nd = d; next = &e; }
+                    }
+                    if (!next) break;
+                    next->hp -= dmg * 0.7f; next->flashTimer = 0.15f;
+                    if (next->hp <= 0.f) {
+                        next->alive = false;
+                        spawnXpOrb(next->worldPos, 1);
+                        spawnParticles(next->worldPos, sf::Color(255,220,0), 5);
+                    }
+                    lastPos = next->worldPos;
+                }
+                if (first->hp <= 0.f) {
+                    first->alive = false;
+                    spawnXpOrb(first->worldPos, 1);
+                    spawnParticles(first->worldPos, sf::Color(255,220,0), 5);
+                }
+            }
+        }
+    }
+
+    // ── Frost Burst — AoE zamrożenie co 4s ───────────────
+    if (hasFrostBurst) {
+        frostBurstCd -= dt;
+        if (frostBurstCd <= 0.f) {
+            frostBurstCd = 4.0f - frostBurstLevel * 0.3f;
+            float r = 120.f + frostBurstLevel * 20.f;
+            hitEnemiesInRadius(playerPos, r,
+                playerAtk * (1.f + frostBurstLevel * 0.3f),
+                sf::Color(100, 220, 255), true);
+        }
+    }
+
+    // ── Virus Bomb — eksplozja przy najbliższym wrogu co 3s ──
+    if (hasVirusBomb) {
+        virusBombCd -= dt;
+        if (virusBombCd <= 0.f) {
+            virusBombCd = 3.0f - virusBombLevel * 0.2f;
+            Enemy* t = nullptr; float bd = 1e9f;
+            for (auto& e : enemies) {
+                if (!e.alive) continue;
+                float d = vlen(e.worldPos - playerPos);
+                if (d < bd) { bd = d; t = &e; }
+            }
+            if (t) {
+                float r = 80.f + virusBombLevel * 15.f;
+                hitEnemiesInRadius(t->worldPos, r,
+                    playerAtk * (1.5f + virusBombLevel * 0.3f),
+                    sf::Color(255, 60, 120));
+            }
+        }
+    }
+
+    // ── Static Storm — losowe pioruny co 0.8s ────────────
+    if (hasStaticStorm) {
+        staticStormCd -= dt;
+        if (staticStormCd <= 0.f) {
+            staticStormCd = 0.8f - staticStormLevel * 0.05f;
+            int strikes = 1 + staticStormLevel;
+            for (int i = 0; i < strikes; ++i) {
+                sf::Vector2f spos = playerPos + sf::Vector2f(
+                    frandr(-250.f, 250.f), frandr(-250.f, 250.f));
+                hitEnemiesInRadius(spos, 40.f,
+                    playerAtk * (0.8f + staticStormLevel * 0.15f),
+                    sf::Color(200, 100, 255));
+            }
+        }
+    }
+
+    // ── Data Vortex — przyciąga + obrażenia co 5s ────────
+    if (hasDataVortex) {
+        dataVortexCd -= dt;
+        // ciągłe przyciąganie
+        for (auto& e : enemies) {
+            if (!e.alive || e.frozenTimer > 0.f) continue;
+            float d = vlen(e.worldPos - playerPos);
+            if (d < 200.f + dataVortexLevel * 30.f && d > 30.f) {
+                e.worldPos += vnorm(playerPos - e.worldPos) * 60.f * dt;
+            }
+        }
+        if (dataVortexCd <= 0.f) {
+            dataVortexCd = 5.0f;
+            hitEnemiesInRadius(playerPos, 80.f,
+                playerAtk * (1.f + dataVortexLevel * 0.25f),
+                sf::Color(255, 220, 0));
+        }
+    }
+
+    // ── Core Drop — spada na losowego wroga co 3.5s ──────
+    if (hasCoreDropWeapon) {
+        coreDropCd -= dt;
+        if (coreDropCd <= 0.f) {
+            coreDropCd = 3.5f - coreDropLevel * 0.2f;
+            if (!enemies.empty()) {
+                int idx = rand() % enemies.size();
+                if (enemies[idx].alive) {
+                    hitEnemiesInRadius(enemies[idx].worldPos,
+                        60.f + coreDropLevel * 10.f,
+                        playerAtk * (2.f + coreDropLevel * 0.4f),
+                        sf::Color(255, 100, 0));
+                }
+            }
+        }
+    }
+
+    // ── Corruption Zone — strefa obrażeń co 6s ───────────
+    if (hasCorruptionZone) {
+        corruptionCd -= dt;
+        if (corruptionCd <= 0.f) {
+            corruptionCd = 6.f;
+            CorruptionZoneObj cz;
+            cz.worldPos  = playerPos;
+            cz.radius    = 70.f + corruptionLevel * 15.f;
+            cz.lifetime  = 4.f + corruptionLevel * 0.5f;
+            cz.tickTimer = 0.f;
+            cz.alive     = true;
+            corruptionZones.push_back(cz);
+        }
+        // tick istniejących stref
+        for (auto& cz : corruptionZones) {
+            if (!cz.alive) continue;
+            cz.lifetime  -= dt;
+            cz.tickTimer -= dt;
+            if (cz.lifetime <= 0.f) { cz.alive = false; continue; }
+            if (cz.tickTimer <= 0.f) {
+                cz.tickTimer = 0.5f;
+                for (auto& e : enemies) {
+                    if (!e.alive) continue;
+                    if (vlen(e.worldPos - cz.worldPos) < cz.radius) {
+                        e.hp -= playerAtk * 0.4f;
+                        e.flashTimer = 0.1f;
+                        if (e.hp <= 0.f) {
+                            e.alive = false;
+                            spawnXpOrb(e.worldPos, 1);
+                            spawnParticles(e.worldPos, sf::Color(120,0,220), 5);
+                        }
+                    }
+                }
+            }
+        }
+        corruptionZones.erase(
+            std::remove_if(corruptionZones.begin(), corruptionZones.end(),
+                [](const CorruptionZoneObj& c){ return !c.alive; }),
+            corruptionZones.end());
+    }
+
+    // ── Shock Grid — strefa wokół gracza ciągłe DMG ──────
+    if (hasShockGrid) {
+        shockGridCd -= dt;
+        if (shockGridCd <= 0.f) {
+            shockGridCd = 0.6f;
+            float r = 80.f + shockGridLevel * 12.f;
+            for (auto& e : enemies) {
+                if (!e.alive) continue;
+                if (vlen(e.worldPos - playerPos) < r) {
+                    e.hp -= playerAtk * 0.3f;
+                    e.flashTimer = 0.08f;
+                    if (e.hp <= 0.f) {
+                        e.alive = false;
+                        spawnXpOrb(e.worldPos, 1);
+                        spawnParticles(e.worldPos, sf::Color(0,220,255), 4);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Packet Flood — fala pocisków co 2.5s ─────────────
+    if (hasPacketFlood) {
+        packetFloodCd -= dt;
+        if (packetFloodCd <= 0.f) {
+            packetFloodCd = 2.5f - packetFloodLevel * 0.15f;
+            int count = 5 + packetFloodLevel * 2;
+            for (int i = 0; i < count; ++i) {
+                float a = (float)i / count * 2.f * GPI;
+                Bullet b;
+                b.worldPos = playerPos;
+                b.dir      = sf::Vector2f(std::cos(a), std::sin(a));
+                b.speed    = 400.f;
+                b.lifetime = 1.2f;
+                b.alive    = true;
+                bullets.push_back(b);
+            }
+        }
+    }
+
+    // ── Overburn — ogień za graczem podczas ruchu ─────────
+    if (hasOverburn) {
+        overburnCd -= dt;
+        sf::Vector2f dir(0.f, 0.f);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) dir.y -= 1.f;
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) dir.y += 1.f;
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) dir.x -= 1.f;
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) dir.x += 1.f;
+        if (vlen(dir) > 0.01f && overburnCd <= 0.f) {
+            overburnCd = 0.3f;
+            hitEnemiesInRadius(playerPos, 35.f + overburnLevel * 8.f,
+                playerAtk * 0.4f, sf::Color(255, 80, 0));
+        }
+    }
+
+    // ── Cryo Sweep — fala we wszystkich kierunkach co 5s ──
+    if (hasCryoSweep) {
+        cryoSweepCd -= dt;
+        if (cryoSweepCd <= 0.f) {
+            cryoSweepCd = 5.f - cryoSweepLevel * 0.3f;
+            float r = 150.f + cryoSweepLevel * 25.f;
+            hitEnemiesInRadius(playerPos, r,
+                playerAtk * (1.2f + cryoSweepLevel * 0.2f),
+                sf::Color(150, 230, 255), true);
+        }
+    }
+
+    // ── EMP Flash — ogłuszenie wrogów co 4s ──────────────
+    if (hasEmpFlash) {
+        empFlashCd -= dt;
+        if (empFlashCd <= 0.f) {
+            empFlashCd = 4.f - empFlashLevel * 0.2f;
+            float r = 200.f + empFlashLevel * 30.f;
+            for (auto& e : enemies) {
+                if (!e.alive) continue;
+                if (vlen(e.worldPos - playerPos) < r) {
+                    e.frozenTimer = 2.f + empFlashLevel * 0.3f;
+                    e.flashTimer  = 0.2f;
+                }
+            }
+            WeaponEffect ef;
+            ef.worldPos = playerPos; ef.radius = 0.f;
+            ef.alpha = 220.f; ef.lifetime = 0.4f;
+            ef.color = sf::Color(255, 255, 100); ef.alive = true;
+            weaponEffects.push_back(ef);
+        }
+    }
+
+    // ── Laser Ray — laser do najbliższego co 0.5s ─────────
+    if (hasLaserRay) {
+        laserRayCd -= dt;
+        if (laserRayCd <= 0.f) {
+            laserRayCd = 0.5f;
+            Enemy* t = nullptr; float bd = 600.f;
+            for (auto& e : enemies) {
+                if (!e.alive) continue;
+                float d = vlen(e.worldPos - playerPos);
+                if (d < bd) { bd = d; t = &e; }
+            }
+            if (t) {
+                t->hp -= playerAtk * (0.6f + laserRayLevel * 0.15f);
+                t->flashTimer = 0.1f;
+                if (t->hp <= 0.f) {
+                    t->alive = false;
+                    spawnXpOrb(t->worldPos, 1);
+                    spawnParticles(t->worldPos, sf::Color(255,40,40), 6);
+                }
+                // efekt wizualny linii
+                WeaponEffect ef;
+                ef.worldPos = t->worldPos;
+                ef.radius   = bd;
+                ef.alpha    = 200.f;
+                ef.lifetime = 0.08f;
+                ef.color    = sf::Color(255, 40, 40);
+                ef.alive    = true;
+                weaponEffects.push_back(ef);
+            }
+        }
+    }
+
+    // tick efektów wizualnych
+    for (auto& ef : weaponEffects) {
+        ef.lifetime -= dt;
+        ef.alpha    -= dt * 600.f;
+        ef.radius   += dt * 200.f;
+        if (ef.lifetime <= 0.f || ef.alpha <= 0.f) ef.alive = false;
+    }
+    weaponEffects.erase(
+        std::remove_if(weaponEffects.begin(), weaponEffects.end(),
+            [](const WeaponEffect& e){ return !e.alive; }),
+        weaponEffects.end());
+}
+
+void Game::drawWeapons() {
+    // ── Orbital Node ──────────────────────────────────────
+    if (hasOrbitalNode) {
+        float orbitR = 80.f + orbitalLevel * 10.f;
+        sf::Vector2f orbPos = playerPos + sf::Vector2f(
+            std::cos(orbitalAngle) * orbitR,
+            std::sin(orbitalAngle) * orbitR);
+        sf::Vector2f scr = worldToScreen(orbPos, playerPos);
+        sf::CircleShape orb(10.f + orbitalLevel * 2.f);
+        orb.setOrigin(orb.getRadius(), orb.getRadius());
+        orb.setPosition(scr);
+        orb.setFillColor(sf::Color(255, 180, 0, 200));
+        orb.setOutlineColor(sf::Color(255, 220, 100));
+        orb.setOutlineThickness(2.f);
+        window.draw(orb);
+    }
+
+    // ── Shock Grid — pulsujący okrąg wokół gracza ────────
+    if (hasShockGrid) {
+        float pulse = 0.6f + 0.4f * std::sin(globalTime * 8.f);
+        sf::CircleShape grid(80.f + shockGridLevel * 12.f);
+        grid.setOrigin(grid.getRadius(), grid.getRadius());
+        grid.setPosition(GW/2.f, GH/2.f);
+        grid.setFillColor(sf::Color::Transparent);
+        grid.setOutlineColor(sf::Color(0, 220, 255, (sf::Uint8)(pulse * 120.f)));
+        grid.setOutlineThickness(2.f);
+        window.draw(grid);
+    }
+
+    // ── Data Vortex — okrąg przyciągania ─────────────────
+    if (hasDataVortex) {
+        float pulse = 0.5f + 0.5f * std::sin(globalTime * 3.f);
+        sf::CircleShape vortex(200.f + dataVortexLevel * 30.f);
+        vortex.setOrigin(vortex.getRadius(), vortex.getRadius());
+        vortex.setPosition(GW/2.f, GH/2.f);
+        vortex.setFillColor(sf::Color::Transparent);
+        vortex.setOutlineColor(sf::Color(255, 220, 0, (sf::Uint8)(pulse * 60.f)));
+        vortex.setOutlineThickness(1.f);
+        window.draw(vortex);
+    }
+
+    // ── Corruption Zones ──────────────────────────────────
+    for (auto& cz : corruptionZones) {
+        if (!cz.alive) continue;
+        sf::Vector2f scr = worldToScreen(cz.worldPos, playerPos);
+        float alpha = (cz.lifetime / (4.f + corruptionLevel * 0.5f)) * 120.f;
+        sf::CircleShape zone(cz.radius);
+        zone.setOrigin(cz.radius, cz.radius);
+        zone.setPosition(scr);
+        zone.setFillColor(sf::Color(120, 0, 220, (sf::Uint8)alpha));
+        zone.setOutlineColor(sf::Color(180, 60, 255, 180));
+        zone.setOutlineThickness(2.f);
+        window.draw(zone);
+    }
+
+    // ── Efekty fale eksplozji) ───────────────────────
+    for (auto& ef : weaponEffects) {
+        if (!ef.alive) continue;
+        sf::Vector2f scr = worldToScreen(ef.worldPos, playerPos);
+        sf::CircleShape ring(ef.radius);
+        ring.setOrigin(ef.radius, ef.radius);
+        ring.setPosition(scr);
+        ring.setFillColor(sf::Color::Transparent);
+        sf::Color c = ef.color;
+        c.a = (sf::Uint8)std::max(0.f, ef.alpha);
+        ring.setOutlineColor(c);
+        ring.setOutlineThickness(3.f);
+        window.draw(ring);
+    }
+
+    // ── Laser Ray — linia do celu ─────────────────────────
+    if (hasLaserRay && !weaponEffects.empty()) {
+        for (auto& ef : weaponEffects) {
+            if (!ef.alive || ef.color != sf::Color(255,40,40)) continue;
+            sf::Vector2f scrP(GW/2.f, GH/2.f);
+            sf::Vector2f scrT = worldToScreen(ef.worldPos, playerPos);
+            sf::Color lc(255, 40, 40, (sf::Uint8)std::max(0.f, ef.alpha));
+            sf::Vertex line[] = { {scrP, lc}, {scrT, lc} };
+            window.draw(line, 2, sf::Lines);
+        }
     }
 }
 

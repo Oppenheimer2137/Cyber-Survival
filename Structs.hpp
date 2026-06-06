@@ -9,6 +9,7 @@ struct Star {
 struct Enemy {
     sf::Vector2f worldPos;
     float hp, maxHp, speed, flashTimer;
+    float frozenTimer = 0.f;
     bool  alive, isBoss;
     int   type;
     float zigzagTimer;

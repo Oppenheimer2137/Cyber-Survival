@@ -60,7 +60,7 @@ private:
     int          playerHp    = 100;
     int          playerXp    = 0;
     int          playerLevel = 1;
-    int          xpToNext    = 10;
+    int          xpToNext    = 5;
     sf::Vector2f playerPos   = {0.f, 0.f};
     sf::ConvexShape playerShape;
 
@@ -74,6 +74,91 @@ private:
     std::vector<Upgrade> upgradePool;
     std::vector<Upgrade*> upgradeChoices;
     int  pendingLevelUps = 0;
+
+    // Statystyki gracza (modyfikowane przez power-upy)
+    float playerAtk        = 10.f;
+    float playerSpeedMult  = 1.f;
+    float playerFireRate   = 3.2f;
+    int   playerMaxHp      = 100;
+    float playerMagnet     = 150.f;
+    float playerCdr        = 0.f;
+    float playerHpRegen    = 0.f;
+
+    // Stany aktywnych broni (odblokowane przez power-upy)
+    bool  hasOrbitalNode   = false;
+    float orbitalAngle     = 0.f;
+    int   orbitalLevel     = 0;
+
+    bool  hasChainShock    = false;
+    float chainShockCd     = 0.f;
+    int   chainShockLevel  = 0;
+
+    bool  hasFrostBurst    = false;
+    float frostBurstCd     = 0.f;
+    int   frostBurstLevel  = 0;
+
+    bool  hasVirusBomb     = false;
+    float virusBombCd      = 0.f;
+    int   virusBombLevel   = 0;
+
+    bool  hasStaticStorm   = false;
+    float staticStormCd    = 0.f;
+    int   staticStormLevel = 0;
+
+    bool  hasDataVortex    = false;
+    float dataVortexCd     = 0.f;
+    int   dataVortexLevel  = 0;
+
+    bool  hasCoreDropWeapon = false;
+    float coreDropCd       = 0.f;
+    int   coreDropLevel    = 0;
+
+    bool  hasCorruptionZone = false;
+    float corruptionCd     = 0.f;
+    int   corruptionLevel  = 0;
+
+    bool  hasShockGrid     = false;
+    float shockGridCd      = 0.f;
+    int   shockGridLevel   = 0;
+
+    bool  hasPacketFlood   = false;
+    float packetFloodCd    = 0.f;
+    int   packetFloodLevel = 0;
+
+    bool  hasOverburn      = false;
+    float overburnCd       = 0.f;
+    int   overburnLevel    = 0;
+
+    bool  hasCryoSweep     = false;
+    float cryoSweepCd      = 0.f;
+    int   cryoSweepLevel   = 0;
+
+    bool  hasEmpFlash      = false;
+    float empFlashCd       = 0.f;
+    int   empFlashLevel    = 0;
+
+    bool  hasLaserRay      = false;
+    float laserRayCd       = 0.f;
+    float laserRayTimer    = 0.f;
+    bool  laserRayFiring   = false;
+    int   laserRayLevel    = 0;
+
+    // Wizualne efekty broni
+    struct WeaponEffect {
+        sf::Vector2f worldPos;
+        float radius, alpha, lifetime;
+        sf::Color color;
+        bool alive;
+    };
+    std::vector<WeaponEffect> weaponEffects;
+
+    // Strefa korupcji na mapie
+    struct CorruptionZoneObj {
+        sf::Vector2f worldPos;
+        float radius, lifetime, tickTimer;
+        bool alive;
+    };
+    std::vector<CorruptionZoneObj> corruptionZones;
 
     void buildUpgradeChoices();
     void applyUpgrade(int choiceIndex);
@@ -124,6 +209,10 @@ private:
     void spawnParticles(sf::Vector2f pos, sf::Color col, int n);
     void updateParticles(float dt);
     void drawParticles();
+
+    void tickWeapons(float dt);
+    void drawWeapons();
+    void hitEnemiesInRadius(sf::Vector2f pos, float radius, float dmg, sf::Color col, bool freeze = false);
 
     void resetGame();
 };
