@@ -92,8 +92,8 @@ void Game::handleEvents() {
 // ── Update ────────────────────────────────────────────────────
 void Game::update(float dt) {
     globalTime += dt;
-
     if (state == State::Playing) {
+        gameTime += dt;
         // Ruch WASD
         sf::Vector2f dir(0.f, 0.f);
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::W))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))) dir.y -= 1.f;
@@ -195,8 +195,6 @@ void Game::drawPlayer() {
     window.draw(playerShape);
 }
 
-
-
 void Game::drawMenu() {
     if (font.getInfo().family.empty()) return;
     sf::Text t;
@@ -226,70 +224,49 @@ void Game::spawnEnemy() {
     e.isBoss = false;
     e.zigzagTimer = 0.f;
 
-    int maxType = (waveNumber < 3) ? 0 : (waveNumber < 6) ? 1 : 2;
+    int maxType;
+    if      (waveNumber < 3)  maxType = 0;
+    else if (waveNumber < 8)  maxType = 1;
+    else if (waveNumber < 15) maxType = 2;
+    else if (waveNumber < 25) maxType = 3;
+    else if (waveNumber < 35) maxType = 4;
+    else if (waveNumber < 45) maxType = 5;
+    else                      maxType = 6;
     e.type = rand() % (maxType + 1);
+    float hpMult  = 1.f + waveNumber * 0.08f;
+    float spdMult = 1.f + waveNumber * 0.03f;
 
     switch (e.type) {
-        case 0: // Virus
-            e.hp    = 30.f;
-            e.maxHp = 30.f;
-            e.speed = 90.f + waveNumber * 2.f;
-            break;
-        case 1: // Worm
-            e.hp    = 15.f;
-            e.maxHp = 15.f;
-            e.speed = 160.f + waveNumber * 2.f;
-            break;
-        case 2: // Exploit
-            e.hp    = 120.f;
-            e.maxHp = 120.f;
-            e.speed = 45.f + waveNumber * 1.f;
-            break;
-    }
+    case 0: e.hp = 30.f*hpMult;  e.maxHp=e.hp; e.speed=80.f*spdMult;  break;
+    case 1: e.hp = 15.f*hpMult;  e.maxHp=e.hp; e.speed=150.f*spdMult; break;
+    case 2: e.hp = 200.f*hpMult; e.maxHp=e.hp; e.speed=40.f*spdMult;  break;
+    case 3: e.hp = 60.f*hpMult;  e.maxHp=e.hp; e.speed=70.f*spdMult;  break;
+    case 4: e.hp = 40.f*hpMult;  e.maxHp=e.hp; e.speed=55.f*spdMult;  break;
+    case 5: e.hp = 25.f*hpMult;  e.maxHp=e.hp; e.speed=0.f;           break;
+    case 6: e.hp = 10.f*hpMult;  e.maxHp=e.hp; e.speed=200.f*spdMult; break;
+}
     enemies.push_back(e);
 }
 
-void Game::startWave() {
-    waveNumber++;
-    if (waveNumber % 5 == 0) {
-        spawnBoss();
-        waveEnemiesLeft  = 0;
-        waveState        = WaveState::WaitingClear;
-    } else {
-        waveEnemiesSpawn  = 8 + waveNumber * 3;
-        waveEnemiesLeft   = waveEnemiesSpawn;
-        waveSpawnTimer    = 0.f;
-        waveSpawnInterval = std::max(0.4f, 1.5f - waveNumber * 0.05f);
-        waveState         = WaveState::Spawning;
-    }
-}
-
 void Game::updateWave(float dt) {
-    switch (waveState) {
-        case WaveState::Countdown:
-            waveClearTimer += dt;
-            if (waveClearTimer >= (waveNumber == 0 ? 1.f : 3.f)) {
-                waveClearTimer = 0.f;
-                startWave();
-            }
-            break;
+    waveTimer  += dt;
+    spawnTimer += dt;
 
-        case WaveState::Spawning:
-            waveSpawnTimer += dt;
-            if (waveSpawnTimer >= waveSpawnInterval && waveEnemiesLeft > 0) {
-                waveSpawnTimer = 0.f;
-                waveEnemiesLeft--;
-                spawnEnemy();
-            }
-            if (waveEnemiesLeft == 0) waveState = WaveState::WaitingClear;
-            break;
+    if (waveTimer >= 30.f && waveNumber < 60) {
+        waveTimer = 0.f;
+        waveNumber++;
+        bossSpawned = false;
+        if (waveNumber % 5 == 0) {
+            spawnBoss();
+            bossSpawned = true;
+        }
+    }
 
-        case WaveState::WaitingClear:
-            if (enemies.empty()) {
-                waveClearTimer = 0.f;
-                waveState      = WaveState::Countdown;
-            }
-            break;
+    spawnInterval = std::max(0.3f, 2.0f - waveNumber * 0.025f);
+    if (spawnTimer >= spawnInterval) {
+        spawnTimer = 0.f;
+        int count = 1 + waveNumber / 10;
+        for (int i = 0; i < count; ++i) spawnEnemy();
     }
 }
 
@@ -304,9 +281,40 @@ void Game::updateEnemies(float dt) {
             sf::Vector2f perp(-toPlayer.y, toPlayer.x);
             float zigzag = std::sin(e.zigzagTimer * 5.f) * 0.6f;
             e.worldPos += (toPlayer + perp * zigzag) * e.speed * dt;
-    }   else {
+}       else if (e.type == 4) {
+            float d = vlen(playerPos - e.worldPos);
+            float spd = d > 200.f ? e.speed : e.speed * 0.3f;
+            e.worldPos += vnorm(playerPos - e.worldPos) * spd * dt;
+}       else if (e.type == 5) {
+            e.zigzagTimer += dt;
+            if (e.zigzagTimer >= 2.f) {
+                e.zigzagTimer = 0.f;
+                float a = frand() * 2.f * GPI;
+                float d = 80.f + frand() * 60.f;
+                e.worldPos = playerPos + sf::Vector2f(std::cos(a)*d, std::sin(a)*d);
+                e.flashTimer = 0.3f;
+    }
+}       else {
             e.worldPos += vnorm(playerPos - e.worldPos) * e.speed * dt;
-    }}
+}}
+
+    for (int i = 0; i < (int)enemies.size(); ++i) {
+        if (!enemies[i].alive) continue;
+        float ri = enemies[i].isBoss ? 26.f : (enemies[i].type == 2 ? 18.f : 12.f);
+        for (int j = i+1; j < (int)enemies.size(); ++j) {
+            if (!enemies[j].alive) continue;
+            float rj = enemies[j].isBoss ? 26.f : (enemies[j].type == 2 ? 18.f : 12.f);
+            float minDist = ri + rj;
+            sf::Vector2f diff = enemies[i].worldPos - enemies[j].worldPos;
+            float d = vlen(diff);
+            if (d < minDist && d > 0.01f) {
+                sf::Vector2f push = vnorm(diff) * (minDist - d) * 0.5f;
+                enemies[i].worldPos += push;
+                enemies[j].worldPos -= push;
+            }
+        }
+    }
+
     enemies.erase(
         std::remove_if(enemies.begin(), enemies.end(),
                        [](const Enemy& e){ return !e.alive; }),
@@ -352,12 +360,18 @@ void Game::drawEnemies() {
             }
 
         switch(e.type) {
-            case 0: col = sf::Color(180, 30,  30);  break; // Virus
-            case 1: col = sf::Color(60,  220, 120); break; // Worm
-            case 2: col = sf::Color(120, 120, 140); break; // Exploit
-    }
-    shape.setRadius(e.type == 2 ? 18.f : 12.f);
-    shape.setOrigin(shape.getRadius(), shape.getRadius());
+            case 0: col = sf::Color(180, 30,  30);  break;
+            case 1: col = sf::Color(60,  220, 120); break;
+            case 2: col = sf::Color(120, 120, 140); break;
+            case 3: col = sf::Color(200, 120,  40); break;
+            case 4: col = sf::Color(40,  160, 255); break;
+            case 5: col = sf::Color(120,   0, 220); break;
+            case 6: col = sf::Color(80,  180, 255); break;
+            default:col = sf::Color(180,  30,  30); break;
+}
+    float eRad = e.isBoss ? 26.f : (e.type == 2 ? 18.f : e.type == 6 ? 8.f : 12.f);
+    shape.setRadius(eRad);
+    shape.setOrigin(eRad, eRad);
     shape.setFillColor(e.flashTimer > 0.f ? sf::Color::White : col);
 
         sf::Vector2f scr = worldToScreen(e.worldPos, playerPos);
@@ -371,7 +385,7 @@ void Game::drawEnemies() {
 void Game::checkPlayerHit() {
     for (auto& e : enemies) {
         if (!e.alive) continue;
-        float eRadius = e.isBoss ? 26.f : (e.type == 2 ? 18.f : 12.f);
+        float eRadius = e.isBoss ? 26.f : (e.type == 2 ? 18.f : e.type == 6 ? 8.f : 12.f);
         if (vlen(e.worldPos - playerPos) < eRadius + 14.f) {
             if (invincTimer <= 0.f && boostGhostTimer <= 0.f) {
                 playerHp -= 10;
@@ -422,7 +436,23 @@ void Game::updateBullets(float dt) {
                 b.alive = false;
                 if (e.hp <= 0.f) {
                     e.alive = false;
-                    if (frand() < 0.2f) spawnXpOrb(e.worldPos, 1);
+
+                    if (e.type == 3) {
+                        for (int s = 0; s < 2; ++s) {
+                        float a = frand() * 2.f * GPI;
+                        Enemy baby;
+                        baby.worldPos  = e.worldPos + sf::Vector2f(std::cos(a)*20.f, std::sin(a)*20.f);
+                        baby.hp = baby.maxHp = 15.f;
+                        baby.speed = 90.f;
+                        baby.type = 0; baby.isBoss = false;
+                        baby.alive = true; baby.flashTimer = 0.f;
+                        baby.frozenTimer = 0.f; baby.zigzagTimer = 0.f;
+                        enemies.push_back(baby);
+                    }
+                }
+
+                    int xpVal = e.isBoss ? 50 : (e.type == 2 ? 15 : 1);
+                    spawnXpOrb(e.worldPos, xpVal);
                     if (e.type == 2 && frand() < 0.15f) spawnBoostOrb(e.worldPos, rand() % 5);
                     sf::Color col = e.isBoss ? sf::Color(255,180,0) :
                     e.type == 1 ? sf::Color(60,220,120) :
@@ -520,14 +550,12 @@ void Game::drawHUD() {
     t.setPosition(GW - 160.f, 44.f);
     window.draw(t);
 
-    if (waveState == WaveState::Countdown && waveNumber > 0) {
-        float timeLeft = (waveNumber == 0 ? 1.f : 3.f) - waveClearTimer;
-        t.setCharacterSize(32);
-        t.setString("FALA " + std::to_string(waveNumber + 1) + " ZA " + std::to_string((int)timeLeft + 1) + "s");
-        t.setFillColor(sf::Color(255, 200, 0));
-        centerText(t, GW / 2.f, GH * 0.25f);
-        window.draw(t);
-    }
+    int gm = (int)gameTime;
+    t.setString(std::to_string(gm/60) + ":" + (gm%60 < 10 ? "0" : "") + std::to_string(gm%60));
+    t.setCharacterSize(20);
+    t.setFillColor(sf::Color(200, 200, 200));
+    centerText(t, GW/2.f, 20.f);
+    window.draw(t);
 
     if (font.getInfo().family.empty()) return;
     sf::Text bt;
@@ -565,6 +593,10 @@ void Game::spawnXpOrb(sf::Vector2f pos, int value) {
     orb.worldPos = pos;
     orb.value    = value;
     orb.alive    = true;
+    if      (value >= 50) orb.orbSize = 3;
+    else if (value >= 15) orb.orbSize = 2;
+    else if (value >= 4)  orb.orbSize = 1;
+    else                  orb.orbSize = 0;
     xpOrbs.push_back(orb);
 }
 
@@ -586,6 +618,7 @@ void Game::checkXpPickup() {
             orb.worldPos += vnorm(playerPos - orb.worldPos) * 200.f * 0.016f;
         if (d < pickupRadius) {
             orb.alive = false;
+            if (orb.orbSize == 3) playerHp = std::min(playerMaxHp, playerHp + 20);
             playerXp += orb.value;
             if (playerXp >= xpToNext) {
                 playerXp  -= xpToNext;
@@ -602,16 +635,25 @@ void Game::checkXpPickup() {
 }
 
 void Game::drawXpOrbs() {
-    sf::CircleShape shape(6.f);
-    shape.setOrigin(6.f, 6.f);
-    shape.setFillColor(sf::Color(40, 160, 255));
-    shape.setOutlineColor(sf::Color(100, 200, 255));
-    shape.setOutlineThickness(1.f);
+    sf::CircleShape shape;
     for (auto& orb : xpOrbs) {
         if (!orb.alive) continue;
         sf::Vector2f scr = worldToScreen(orb.worldPos, playerPos);
         if (!isOnScreen(scr, 20.f)) continue;
+        float r; sf::Color fill, out;
+        switch (orb.orbSize) {
+            case 0: r=5.f;  fill=sf::Color(40,160,255);  out=sf::Color(100,200,255); break;
+            case 1: r=8.f;  fill=sf::Color(255,200,40);  out=sf::Color(255,230,100); break;
+            case 2: r=11.f; fill=sf::Color(255,100,180); out=sf::Color(255,160,210); break;
+            case 3: r=14.f; fill=sf::Color(60,220,80);   out=sf::Color(120,255,140); break;
+            default:r=5.f;  fill=sf::Color(40,160,255);  out=sf::Color(100,200,255); break;
+        }
+        shape.setRadius(r);
+        shape.setOrigin(r, r);
         shape.setPosition(scr);
+        shape.setFillColor(fill);
+        shape.setOutlineColor(out);
+        shape.setOutlineThickness(1.5f);
         window.draw(shape);
     }
 }
@@ -754,12 +796,11 @@ void Game::resetGame() {
     dashCd         = 0.f;
     dashTimer      = 0.f;
     dashing        = false;
-    waveNumber     = 0;
-    waveEnemiesLeft   = 0;
-    waveEnemiesSpawn  = 0;
-    waveSpawnTimer    = 0.f;
-    waveClearTimer    = 0.f;
-    waveState      = WaveState::Countdown;
+    waveNumber    = 0;
+    waveTimer     = 0.f;
+    spawnTimer    = 0.f;
+    spawnInterval = 2.0f;
+    bossSpawned   = false;
     xpSpawnTimer   = 0.f;
     hpSpawnTimer   = 0.f;
     boostSpawnTimer = 0.f;
@@ -774,7 +815,7 @@ void Game::resetGame() {
     hpOrbs.clear();
     boostOrbs.clear();
     playerShape.setRotation(0.f);
-    waveSpawnInterval = 1.5f;
+    gameTime = 0.f;
     playerAtk       = 10.f;
     playerSpeedMult = 1.f;
     playerFireRate  = 3.2f;
@@ -1061,7 +1102,7 @@ void Game::hitEnemiesInRadius(sf::Vector2f pos, float radius, float dmg,
             if (freeze) e.frozenTimer = 1.5f + frostBurstLevel * 0.3f;
             if (e.hp <= 0.f) {
                 e.alive = false;
-                spawnXpOrb(e.worldPos, 1);
+                spawnXpOrb(e.worldPos, e.isBoss ? 50 : (e.type == 2 ? 15 : 1));
                 spawnParticles(e.worldPos, col, 6);
             }
         }

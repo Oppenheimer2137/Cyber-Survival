@@ -18,6 +18,7 @@ private:
     sf::Font         font;
     State            state = State::Menu;
     float            globalTime = 0.f;
+    float            gameTime = 0.f;
 
     // Tło
     std::vector<Star> stars;
@@ -45,14 +46,11 @@ private:
     float boostGhostTimer    = 0.f;
 
     // Fale
-    int       waveNumber        = 0;
-    int       waveEnemiesLeft   = 0;
-    int       waveEnemiesSpawn  = 0;
-    float     waveSpawnTimer    = 0.f;
-    float     waveSpawnInterval = 1.5f;
-    float     waveClearTimer    = 0.f;
-    enum class WaveState { Countdown, Spawning, WaitingClear };
-    WaveState waveState = WaveState::Countdown;
+    int   waveNumber    = 0;
+    float waveTimer     = 0.f;
+    float spawnTimer    = 0.f;
+    float spawnInterval = 2.0f;
+    bool  bossSpawned   = false;
 
     // Gracz
     float        fireTimer   = 0.f;
@@ -179,7 +177,6 @@ private:
 
     void spawnEnemy();
     void spawnBoss();
-    void startWave();
     void updateWave(float dt);
     void updateEnemies(float dt);
     void drawEnemies();

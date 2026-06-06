@@ -18,6 +18,7 @@ struct Enemy {
 struct XpOrb {
     sf::Vector2f worldPos;
     int   value;
+    int   orbSize;
     bool  alive;
 };
 
