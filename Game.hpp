@@ -19,6 +19,7 @@ private:
     State            state = State::Menu;
     float            globalTime = 0.f;
     float            gameTime = 0.f;
+    int              totalKills = 0;
 
     // Tło
     std::vector<Star> stars;
@@ -81,6 +82,9 @@ private:
     float playerMagnet     = 150.f;
     float playerCdr        = 0.f;
     float playerHpRegen    = 0.f;
+    float baseSpeedMult  = 1.f;
+    float baseFireRate   = 3.2f;
+    float baseMagnet     = 150.f;
 
     // Stany aktywnych broni (odblokowane przez power-upy)
     bool  hasOrbitalNode   = false;
@@ -212,6 +216,7 @@ private:
     void hitEnemiesInRadius(sf::Vector2f pos, float radius, float dmg, sf::Color col, bool freeze = false);
 
     void resetGame();
+    void drawMinimap();
 };
 
 
