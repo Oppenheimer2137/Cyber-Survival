@@ -13,6 +13,7 @@ struct Enemy {
     bool  alive, isBoss;
     int   type;
     float zigzagTimer;
+    float glowPhase = 0.f;
 };
 
 struct XpOrb {
@@ -27,10 +28,11 @@ struct HpOrb {
     bool alive;
 };
 
-struct BoostOrb {
-    sf::Vector2f worldPos;
-    bool alive;
-    int  type; // 0=SpeedCore, 1=Overclock, 2=DataSurge, 3=Overload, 4=GhostProtocol
+struct Bullet {
+    sf::Vector2f worldPos, dir;
+    float speed, lifetime;
+    bool  alive;
+    sf::Color color = sf::Color(0, 240, 180);
 };
 
 struct Particle {
@@ -40,8 +42,8 @@ struct Particle {
     bool alive;
 };
 
-struct Bullet {
-    sf::Vector2f worldPos, dir;
-    float speed, lifetime;
-    bool  alive;
+struct BoostOrb {
+    sf::Vector2f worldPos;
+    bool alive;
+    int  type; // 0=SpeedCore, 1=Overclock, 2=DataSurge, 3=Overload, 4=GhostProtocol
 };

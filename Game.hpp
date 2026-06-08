@@ -5,13 +5,14 @@
 #include "Utils.hpp"
 #include "Structs.hpp"
 #include "Upgrades.hpp"
+#include "PlayerClass.hpp"
 
 class Game {
 public:
     Game();
     void run();
 private:
-    enum class State { Menu, Playing, LevelUp, GameOver };
+    enum class State { Menu, ClassSelect, Playing, LevelUp, GameOver, Paused };
 
     sf::RenderWindow window;
     sf::Clock        clock;
@@ -19,6 +20,8 @@ private:
     State            state = State::Menu;
     float            globalTime = 0.f;
     float            gameTime = 0.f;
+    PlayerClass selectedClass = PlayerClass::None;
+    int         hoveredClass  = -1;
     int              totalKills = 0;
 
     // Tło
@@ -145,6 +148,20 @@ private:
     bool  laserRayFiring   = false;
     int   laserRayLevel    = 0;
 
+    // Sfera bossa
+    bool  bossArenaActive  = false;
+    float bossArenaRadius  = 0.f;
+    sf::Vector2f bossArenaCenter = {0.f, 0.f};
+
+    // Pauza
+    bool  paused           = false;
+    int   pauseSelected    = 0;
+
+    // Kolor pocisków gracza
+    sf::Color bulletColor  = sf::Color(0, 240, 180);
+
+    float bgPulse          = 0.f;
+
     // Wizualne efekty broni
     struct WeaponEffect {
         sf::Vector2f worldPos;
@@ -217,6 +234,11 @@ private:
 
     void resetGame();
     void drawMinimap();
+    void drawClassSelect();
+    void applyClass(PlayerClass pc);
+    void drawPauseMenu();
+    void drawBossArena();
+    void updateBossArena();
 };
 
 
