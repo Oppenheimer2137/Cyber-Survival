@@ -46,6 +46,10 @@
 		<Unit filename="Constants.hpp" />
 		<Unit filename="Game.cpp" />
 		<Unit filename="Game.hpp" />
+		<Unit filename="PlayerClass.hpp" />
+		<Unit filename="Structs.hpp" />
+		<Unit filename="Upgrades.cpp" />
+		<Unit filename="Upgrades.hpp" />
 		<Unit filename="Utils.cpp" />
 		<Unit filename="Utils.hpp" />
 		<Unit filename="main.cpp" />
