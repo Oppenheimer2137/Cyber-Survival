@@ -28,7 +28,16 @@ add_executable(CyberSurvival
     Constants.cpp
     Utils.cpp
     Upgrades.cpp
-    SoundManager.cpp
+    SoundManager.cpp 
+
+    # Pliki nagłówkowe (warto je tu mieć, żeby IDE je widziało)
+    Game.hpp
+    Constants.hpp
+    Utils.hpp
+    Upgrades.hpp
+    SoundManager.hpp
+    PlayerClass.hpp
+    Structs.hpp
 )
 
 target_include_directories(CyberSurvival PRIVATE
@@ -49,5 +58,8 @@ if(WIN32)
         $<TARGET_RUNTIME_DLLS:CyberSurvival>
         $<TARGET_FILE_DIR:CyberSurvival>
         COMMAND_EXPAND_LISTS
+
+        # DODAJ TĘ LINIJKĘ TUTAJ:
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:CyberSurvival>/assets"
     )
 endif()
