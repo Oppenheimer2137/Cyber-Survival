@@ -28,6 +28,7 @@ add_executable(CyberSurvival
     Constants.cpp
     Utils.cpp
     Upgrades.cpp
+    SoundManager.cpp
 )
 
 target_include_directories(CyberSurvival PRIVATE
