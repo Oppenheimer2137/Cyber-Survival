@@ -47,3 +47,8 @@ struct BoostOrb {
     bool alive;
     int  type; // 0=SpeedCore, 1=Overclock, 2=DataSurge, 3=Overload, 4=GhostProtocol
 };
+
+struct MatrixDrop {
+    float x, y, speed, alpha;
+    char ch;
+};

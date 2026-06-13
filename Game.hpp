@@ -37,6 +37,16 @@ private:
     std::vector<HpOrb>    hpOrbs;
     std::vector<BoostOrb> boostOrbs;
 
+    // Matrix rain + scanlines
+    std::vector<MatrixDrop> matrixDrops;
+    float matrixTimer     = 0.f;
+    float scanlineOffset  = 0.f;
+
+    // Screen flash (trafienie / levelup)
+    float     screenFlashTimer = 0.f;
+    float     screenFlashMax   = 0.f;
+    sf::Color screenFlashCol;
+
     // Timery orbów
     float xpSpawnTimer    = 0.f;
     float hpSpawnTimer    = 0.f;
@@ -59,7 +69,7 @@ private:
     // Gracz
     float        fireTimer   = 0.f;
     float        invincTimer = 0.f;
-    int          playerHp    = 100;
+    int          playerHp    = 200;
     int          playerXp    = 0;
     int          playerLevel = 1;
     int          xpToNext    = 5;
@@ -234,6 +244,9 @@ private:
 
     void resetGame();
     void drawMinimap();
+    void recycleStars();
+    void initMatrixDrops();
+    void updateMatrixDrops(float dt);
     void drawClassSelect();
     void applyClass(PlayerClass pc);
     void drawPauseMenu();

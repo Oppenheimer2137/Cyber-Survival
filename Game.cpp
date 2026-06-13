@@ -19,6 +19,7 @@ Game::Game() {
     buildStars();
     buildPlayerShape();
     upgradePool = getUpgradePool();
+    initMatrixDrops();
 }
 
 void Game::run() {
@@ -98,6 +99,25 @@ void Game::handleEvents() {
                     else { resetGame(); state = State::Menu; paused = false; }
                 }
             }
+            if (state == State::ClassSelect) {
+                PlayerClass map[5] = {
+                    PlayerClass::Payload, PlayerClass::Firewall,
+                    PlayerClass::Packet,  PlayerClass::Daemon,
+                    PlayerClass::Exploit
+                };
+                int idx = -1;
+                if (ev.key.code == sf::Keyboard::Num1) idx = 0;
+                if (ev.key.code == sf::Keyboard::Num2) idx = 1;
+                if (ev.key.code == sf::Keyboard::Num3) idx = 2;
+                if (ev.key.code == sf::Keyboard::Num4) idx = 3;
+                if (ev.key.code == sf::Keyboard::Num5) idx = 4;
+                if (idx >= 0) {
+                    selectedClass = map[idx];
+                    resetGame();
+                    applyClass(selectedClass);
+                    state = State::Playing;
+                }
+            }
         }
         // Kliknięcie myszy — wybór klasy
         if (ev.type == sf::Event::MouseButtonPressed &&
@@ -123,19 +143,19 @@ void Game::handleEvents() {
 
         // Kliknięcie myszy — wybór ulepszenia
         if (ev.type == sf::Event::MouseButtonPressed &&
-        ev.mouseButton.button == sf::Mouse::Left &&
-        state == State::LevelUp) {
+            ev.mouseButton.button == sf::Mouse::Left &&
+            state == State::LevelUp) {
             sf::Vector2f mp((float)ev.mouseButton.x, (float)ev.mouseButton.y);
-            float cardW = 280.f, cardH = 340.f;
-            float startX = GW/2.f - cardW*1.5f - 20.f;
+            float cardW = 220.f, cardH = 340.f;
+            float totalW = 5.f * cardW + 4.f * 15.f;
+            float startX = GW/2.f - totalW/2.f;
             for (int i = 0; i < (int)upgradeChoices.size(); ++i) {
-                float cx = startX + i * (cardW + 20.f);
+                float cx = startX + i * (cardW + 15.f);
                 float cy = GH/2.f - cardH/2.f;
                 if (mp.x >= cx && mp.x <= cx+cardW && mp.y >= cy && mp.y <= cy+cardH)
-                applyUpgrade(i);
+                    applyUpgrade(i);
             }
         }
-
         // Hover myszy — klasy
         if (ev.type == sf::Event::MouseMoved && state == State::ClassSelect) {
             sf::Vector2f mp((float)ev.mouseMove.x, (float)ev.mouseMove.y);
@@ -158,7 +178,7 @@ void Game::update(float dt) {
     bgPulse += dt;
     if (state == State::Paused) return;
     if (state == State::Playing) {
-        gameTime += dt;
+        if (!bossArenaActive) gameTime += dt;
         // Ruch WASD
         sf::Vector2f dir(0.f, 0.f);
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::W))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))) dir.y -= 1.f;
@@ -224,6 +244,10 @@ void Game::update(float dt) {
     updateParticles(dt);
     tickWeapons(dt);
     updateBossArena();
+    recycleStars();
+    scanlineOffset += 60.f * dt;
+    updateMatrixDrops(dt);
+    if (screenFlashTimer > 0.f) screenFlashTimer -= dt;
     }
 
 
@@ -242,92 +266,154 @@ void Game::render() {
     if (state == State::ClassSelect) drawClassSelect();
     if (state == State::GameOver) drawGameOver();
     if (state == State::LevelUp) drawLevelUp();
+
+    // Scanlines
+    {
+        float off = std::fmod(scanlineOffset, 4.f);
+        for (float y = off; y < GH; y += 4.f) {
+            sf::Vertex line[2] = {
+                { sf::Vector2f(0.f, y), sf::Color(0, 0, 0, 14) },
+                { sf::Vector2f(GW,  y), sf::Color(0, 0, 0, 14) }
+            };
+            window.draw(line, 2, sf::Lines);
+        }
+    }
+    // Screen flash
+    if (screenFlashTimer > 0.f) {
+        float a = screenFlashTimer / screenFlashMax;
+        sf::RectangleShape fl({GW, GH});
+        sf::Color fc = screenFlashCol;
+        fc.a = (sf::Uint8)(a * 110.f);
+        fl.setFillColor(fc);
+        window.draw(fl);
+    }
+
     window.display();
 }
 
 void Game::drawBG() {
-    // Siatka cyfrowa — przesuwa się z graczem
-    float gridSize = 120.f;
-    float offX = std::fmod(playerPos.x, gridSize);
-    float offY = std::fmod(playerPos.y, gridSize);
-    float gridAlpha = 18.f + 8.f * std::sin(bgPulse * 0.4f);
-    sf::Color gridCol(0, 180, 100, (sf::Uint8)gridAlpha);
-    for (float x = -offX; x < GW + gridSize; x += gridSize) {
-        sf::Vertex line[] = { {sf::Vector2f(x, 0), gridCol}, {sf::Vector2f(x, GH), gridCol} };
-        window.draw(line, 2, sf::Lines);
-    }
-    for (float y = -offY; y < GH + gridSize; y += gridSize) {
-        sf::Vertex line[] = { {sf::Vector2f(0, y), gridCol}, {sf::Vector2f(GW, y), gridCol} };
-        window.draw(line, 2, sf::Lines);
-    }
+    float t = globalTime;
 
-    // Nebule — wielkie świecące plamy
+    // ── Nebule ────────────────────────────────────────────
     static const struct { float wx, wy, r; sf::Color col; } nebulae[] = {
-        { -800.f,  -400.f, 320.f, sf::Color(0,   80, 180) },
-        {  600.f,   300.f, 280.f, sf::Color(80,   0, 160) },
-        { -200.f,   700.f, 250.f, sf::Color(0,  140,  80) },
-        {  900.f, -600.f,  300.f, sf::Color(120,  0,  80) },
-        { -1200.f, 200.f,  360.f, sf::Color(0,   60, 140) },
+        { -800.f, -400.f, 320.f, sf::Color(0,   80, 180) },
+        {  600.f,  300.f, 280.f, sf::Color(80,   0, 160) },
+        { -200.f,  700.f, 250.f, sf::Color(0,  140,  80) },
+        {  900.f, -600.f, 300.f, sf::Color(120,  0,  80) },
+        {-1200.f,  200.f, 360.f, sf::Color(0,   60, 140) },
     };
     for (auto& nb : nebulae) {
         sf::Vector2f scr = worldToScreen({nb.wx, nb.wy}, playerPos);
         float pulse = 0.5f + 0.5f * std::sin(bgPulse * 0.3f + nb.wx * 0.001f);
         sf::Color c = nb.col;
-        c.a = (sf::Uint8)(22.f + 12.f * pulse);
-        sf::CircleShape neb(nb.r);
-        neb.setOrigin(nb.r, nb.r);
-        neb.setPosition(scr);
-        neb.setFillColor(c);
+        c.a = (sf::Uint8)(20.f + 10.f * pulse);
+        sf::CircleShape neb(nb.r); neb.setOrigin(nb.r, nb.r);
+        neb.setPosition(scr); neb.setFillColor(c);
         window.draw(neb);
-        // Drugi, mniejszy pierscień
-        sf::CircleShape neb2(nb.r * 0.5f);
-        neb2.setOrigin(nb.r * 0.5f, nb.r * 0.5f);
-        neb2.setPosition(scr);
-        c.a = (sf::Uint8)(14.f + 8.f * pulse);
-        neb2.setFillColor(c);
-        window.draw(neb2);
     }
 
-    // Gwiazdy
+    // ── Hex grid (zamiast prostej siatki) ─────────────────
+    float hexR = 70.f;
+    float ox = std::fmod(playerPos.x, hexR * 1.73f);
+    float oy = std::fmod(playerPos.y, hexR * 1.5f);
+    for (int hx = -2; hx < (int)(GW / (hexR * 1.73f)) + 3; hx++) {
+        for (int hy = -2; hy < (int)(GH / (hexR * 1.5f)) + 3; hy++) {
+            float sx = hx * hexR * 1.73f + (hy % 2) * hexR * 0.866f - ox + GW/2.f;
+            float sy = hy * hexR * 1.5f  - oy + GH/2.f;
+            float phase = std::sin(t * 0.7f + (hx + hy) * 0.5f);
+            float alpha = 5.f + 4.f * phase;
+            if (alpha < 0.f) alpha = 0.f;
+            sf::Color hc(0, (sf::Uint8)(150 + 60 * phase), 255, (sf::Uint8)alpha);
+            sf::ConvexShape hex; hex.setPointCount(6);
+            for (int i = 0; i < 6; i++) {
+                float a = i * GPI / 3.f;
+                hex.setPoint(i, sf::Vector2f(sx + std::cos(a) * hexR * 0.88f,
+                                             sy + std::sin(a) * hexR * 0.88f));
+            }
+            hex.setFillColor(sf::Color::Transparent);
+            hex.setOutlineThickness(0.7f);
+            hex.setOutlineColor(hc);
+            window.draw(hex);
+        }
+    }
+
+    // ── Matrix rain ───────────────────────────────────────
+    if (!font.getInfo().family.empty()) {
+        for (auto& d : matrixDrops) {
+            sf::Text ch(std::string(1, d.ch), font, 10);
+            ch.setFillColor(sf::Color(0, 200, 80, (sf::Uint8)(d.alpha * 100.f)));
+            ch.setPosition(d.x, d.y);
+            window.draw(ch);
+        }
+    }
+
+    // ── Gwiazdy z kolorem ─────────────────────────────────
     sf::CircleShape dot;
     for (auto& s : stars) {
         sf::Vector2f scr = worldToScreen(s.worldPos, playerPos);
         if (!isOnScreen(scr, 20.f)) continue;
         float tw = s.bright * (0.6f + 0.4f * std::sin(globalTime * s.twSpd + s.twPhase));
-        dot.setRadius(s.r);
-        dot.setOrigin(s.r, s.r);
-        dot.setPosition(scr);
-        dot.setFillColor(sf::Color(200, 220, 255, (sf::Uint8)(tw * 220.f)));
+        sf::Color sc = (tw > 0.7f)
+            ? sf::Color(80, 200, 255, (sf::Uint8)(tw * 200.f))
+            : sf::Color(200, 220, 255, (sf::Uint8)(tw * 200.f));
+        dot.setRadius(s.r); dot.setOrigin(s.r, s.r);
+        dot.setPosition(scr); dot.setFillColor(sc);
         window.draw(dot);
     }
+
+    // ── Pulsująca ramka w kolorze klasy ───────────────────
+    sf::Color outlineCol = playerShape.getOutlineColor();
+    float pulse = 0.4f + 0.6f * std::abs(std::sin(t * 1.5f));
+    for (int i = 0; i < 3; i++) {
+        sf::RectangleShape bord(sf::Vector2f(GW - 4.f - i*4.f, GH - 4.f - i*4.f));
+        bord.setPosition(2.f + i*2.f, 2.f + i*2.f);
+        bord.setFillColor(sf::Color::Transparent);
+        bord.setOutlineThickness(1.f);
+        sf::Color bc = outlineCol;
+        bc.a = (sf::Uint8)(130 * pulse / (i + 1));
+        bord.setOutlineColor(bc);
+        window.draw(bord);
+    }
+
+    // ── Core pulse w centrum ekranu ───────────────────────
+    float cp = 0.5f + 0.5f * std::sin(t * 2.5f);
+    sf::CircleShape core(28.f * cp); core.setOrigin(28.f * cp, 28.f * cp);
+    core.setPosition(GW/2.f, GH/2.f);
+    core.setFillColor(sf::Color(0, 255, 180, (sf::Uint8)(15 * cp)));
+    core.setOutlineThickness(1.5f);
+    sf::Color coreOut(0, 200, 180, (sf::Uint8)(35 * cp));
+    core.setOutlineColor(coreOut);
+    window.draw(core);
 }
 
 void Game::drawPlayer() {
     sf::Vector2f scr(GW/2.f, GH/2.f);
+    float t = globalTime;
 
-    // Zewnętrzna poświata
-    float glow = 40.f + 10.f * std::sin(globalTime * 2.f);
-    sf::CircleShape g2(glow);
-    g2.setOrigin(glow, glow);
-    g2.setPosition(scr.x, scr.y);
-    sf::Color gc = playerShape.getOutlineColor();
-    gc.a = 18;
-    g2.setFillColor(gc);
-    window.draw(g2);
-
-    // Wewnętrzna poświata
-    float glow2 = 22.f + 5.f * std::sin(globalTime * 4.f);
-    sf::CircleShape g(glow2);
-    g.setOrigin(glow2, glow2);
-    g.setPosition(scr.x, scr.y + 20.f);
-    gc.a = 55;
-    g.setFillColor(gc);
-    window.draw(g);
-
-    playerShape.setPosition(scr);
     bool visible = true;
-    if (invincTimer > 0.f) visible = (int)(invincTimer * 10.f) % 2 == 0;
-    if (visible) window.draw(playerShape);
+    if (invincTimer > 0.f) visible = (int)(invincTimer * 12.f) % 2 == 0;
+
+    // Multi-layer glow (4 warstwy)
+    sf::Color gc = playerShape.getOutlineColor();
+    float glowPulse = 0.7f + 0.3f * std::sin(t * 3.2f);
+    for (int g = 4; g >= 1; g--) {
+        float gr = 28.f * (1.6f + g * 0.5f) * glowPulse;
+        sf::CircleShape glow(gr); glow.setOrigin(gr, gr);
+        glow.setPosition(scr);
+        sf::Color gc2 = gc; gc2.a = (sf::Uint8)(10 * g);
+        glow.setFillColor(gc2);
+        window.draw(glow);
+    }
+
+    if (visible) {
+        playerShape.setPosition(scr);
+        window.draw(playerShape);
+        // Centralny biały punkt
+        sf::CircleShape core(3.5f); core.setOrigin(3.5f, 3.5f);
+        core.setPosition(scr);
+        core.setFillColor(sf::Color::White);
+        window.draw(core);
+    }
 }
 
 void Game::drawMenu() {
@@ -384,8 +470,11 @@ void Game::spawnEnemy() {
 }
 
 void Game::updateWave(float dt) {
+    if (!bossArenaActive) {
     waveTimer  += dt;
     spawnTimer += dt;
+}
+if (bossArenaActive) return;
 
     if (waveTimer >= 30.f && waveNumber < 60) {
         waveTimer = 0.f;
@@ -397,7 +486,7 @@ void Game::updateWave(float dt) {
         }
     }
 
-    spawnInterval = std::max(0.2f, 1.6f - waveNumber * 0.02f);
+    spawnInterval = std::max(0.2f, 4.f - waveNumber * 0.02f);
     if (spawnTimer >= spawnInterval) {
         spawnTimer = 0.f;
         int count = 2 + waveNumber / 6;
@@ -575,9 +664,17 @@ void Game::checkPlayerHit() {
         float eRadius = e.isBoss ? 120.f : (e.type == 2 ? 36.f : (e.type == 6 ? 16.f : 24.f));
         if (vlen(e.worldPos - playerPos) < eRadius + 28.f) {
             if (invincTimer <= 0.f && boostGhostTimer <= 0.f) {
-                playerHp -= 10;
+                 playerHp -= 10;
                 invincTimer = 1.f;
-                if (playerHp <= 0) state = State::GameOver;
+                screenFlashTimer = 0.30f;
+                screenFlashMax   = 0.30f;
+                screenFlashCol   = sf::Color(220, 20, 20);
+                if (playerHp <= 0) {
+                    state = State::GameOver;
+                    screenFlashTimer = 1.0f;
+                    screenFlashMax   = 1.0f;
+                    screenFlashCol   = sf::Color(200, 0, 0);
+                }
             }
         }
     }
@@ -838,12 +935,12 @@ void Game::updateXpOrbs(float dt) {
 
 void Game::checkXpPickup() {
     const float pickupRadius = 40.f;
-    const float magnetRadius = playerMagnet / 3.f;
+    const float magnetRadius = playerMagnet;
     for (auto& orb : xpOrbs) {
         if (!orb.alive) continue;
         float d = vlen(orb.worldPos - playerPos);
         if (d < magnetRadius)
-            orb.worldPos += vnorm(playerPos - orb.worldPos) * 300.f * 0.016f;
+            orb.worldPos += vnorm(playerPos - orb.worldPos) * 400.f * 0.016f;
         if (d < pickupRadius) {
             orb.alive = false;
             if (orb.orbSize == 3) playerHp = std::min(playerMaxHp, playerHp + 20);
@@ -907,12 +1004,12 @@ void Game::updateBoostOrbs(float dt) {
 }
 
 void Game::checkHpPickup() {
-    const float magnetRadius = playerMagnet / 3.f;
+    const float magnetRadius = playerMagnet;
     for (auto& o : hpOrbs) {
         if (!o.alive) continue;
         float d = vlen(o.worldPos - playerPos);
         if (d < magnetRadius)
-            o.worldPos += vnorm(playerPos - o.worldPos) * 300.f * 0.016f;
+            o.worldPos += vnorm(playerPos - o.worldPos) * 400.f * 0.016f;
         if (d < 40.f) {
             o.alive   = false;
             playerHp = std::min(playerHp + 25, playerMaxHp);
@@ -921,12 +1018,12 @@ void Game::checkHpPickup() {
 }
 
 void Game::checkBoostPickup() {
-    const float magnetRadius = playerMagnet / 3.f;
+    const float magnetRadius = playerMagnet;
     for (auto& o : boostOrbs) {
         if (!o.alive) continue;
         float d = vlen(o.worldPos - playerPos);
         if (d < magnetRadius)
-            o.worldPos += vnorm(playerPos - o.worldPos) * 300.f * 0.016f;
+            o.worldPos += vnorm(playerPos - o.worldPos) * 400.f * 0.016f;
         if (d < 40.f) {
             o.alive = false;
             switch (o.type) {
@@ -957,7 +1054,7 @@ void Game::tickBoosts(float dt) {
 
     if (boostMagnetTimer > 0.f) {
         boostMagnetTimer -= dt;
-        playerMagnet = baseMagnet + 300.f;
+        playerMagnet = baseMagnet * 5.f;
     } else {
         playerMagnet = baseMagnet;
     }
@@ -1069,12 +1166,12 @@ void Game::resetGame() {
     playerSpeedMult = 1.f;
     playerFireRate  = 1.4f;
     playerMaxHp     = 100;
-    playerMagnet    = 150.f;
+    playerMagnet    = 225.f;
     playerCdr       = 0.f;
     playerHpRegen   = 0.f;
     baseSpeedMult = 1.f;
-    baseFireRate  = 3.2f;
-    baseMagnet    = 150.f;
+    baseFireRate  = 1.4f;
+    baseMagnet    = 225.f;
     upgradePool     = getUpgradePool();
     pendingLevelUps = 0;
     upgradeChoices.clear();
@@ -1117,7 +1214,7 @@ void Game::spawnBoss() {
     // Aktywuj sferę więzienną bossa
     bossArenaActive = true;
     bossArenaCenter = playerPos;
-    bossArenaRadius = 700.f;
+    bossArenaRadius = 1400.f;
 }
 
 void Game::spawnParticles(sf::Vector2f pos, sf::Color col, int n) {
@@ -1261,10 +1358,13 @@ void Game::applyUpgrade(int idx) {
     upgradeChoices.clear();
     pendingLevelUps--;
 
-    if (pendingLevelUps > 0) {
+   if (pendingLevelUps > 0) {
         buildUpgradeChoices();
     } else {
         state = State::Playing;
+        screenFlashTimer = 0.25f;
+        screenFlashMax   = 0.25f;
+        screenFlashCol   = sf::Color(0, 160, 255);
     }
 }
 
@@ -1388,25 +1488,27 @@ void Game::tickWeapons(float dt) {
     // ── Orbital Node — krąży wokół gracza ────────────────
     if (hasOrbitalNode) {
         orbitalAngle += (1.5f + orbitalLevel * 0.2f) * dt;
-        float orbitR = 80.f + orbitalLevel * 10.f;
-        sf::Vector2f orbPos = playerPos + sf::Vector2f(
-            std::cos(orbitalAngle) * orbitR,
-            std::sin(orbitalAngle) * orbitR);
-        // zadaje obrażenia dotykając wrogów
-        for (auto& e : enemies) {
-            if (!e.alive) continue;
-            if (vlen(e.worldPos - orbPos) < 18.f) {
-                e.hp -= (playerAtk * 0.5f) * dt;
-                e.flashTimer = 0.1f;
-                if (e.hp <= 0.f) {
-                    e.alive = false;
-                    spawnXpOrb(e.worldPos, 1);
-                    spawnParticles(e.worldPos, sf::Color(255,180,0), 6);
+        float orbitR  = 80.f + orbitalLevel * 10.f;
+        int   numSats = orbitalLevel;
+        for (int s = 0; s < numSats; s++) {
+            float angle = orbitalAngle + s * (2.f * GPI / std::max(1, numSats));
+            sf::Vector2f orbPos = playerPos + sf::Vector2f(
+                std::cos(angle) * orbitR,
+                std::sin(angle) * orbitR);
+            for (auto& e : enemies) {
+                if (!e.alive) continue;
+                if (vlen(e.worldPos - orbPos) < 18.f) {
+                    e.hp -= (playerAtk * 0.5f) * dt;
+                    e.flashTimer = 0.1f;
+                    if (e.hp <= 0.f) {
+                        e.alive = false;
+                        spawnXpOrb(e.worldPos, 1);
+                        spawnParticles(e.worldPos, bulletColor, 6);
+                    }
                 }
             }
         }
     }
-
     // ── Chain Shock — łańcuch co 2s ──────────────────────
     if (hasChainShock) {
         chainShockCd -= dt;
@@ -1610,6 +1712,7 @@ void Game::tickWeapons(float dt) {
                 b.speed    = 400.f;
                 b.lifetime = 1.2f;
                 b.alive    = true;
+                b.color    = bulletColor;
                 bullets.push_back(b);
             }
         }
@@ -1711,18 +1814,48 @@ void Game::tickWeapons(float dt) {
 void Game::drawWeapons() {
     // ── Orbital Node ──────────────────────────────────────
     if (hasOrbitalNode) {
-        float orbitR = 80.f + orbitalLevel * 10.f;
-        sf::Vector2f orbPos = playerPos + sf::Vector2f(
-            std::cos(orbitalAngle) * orbitR,
-            std::sin(orbitalAngle) * orbitR);
-        sf::Vector2f scr = worldToScreen(orbPos, playerPos);
-        sf::CircleShape orb(10.f + orbitalLevel * 2.f);
-        orb.setOrigin(orb.getRadius(), orb.getRadius());
-        orb.setPosition(scr);
-        orb.setFillColor(sf::Color(255, 180, 0, 200));
-        orb.setOutlineColor(sf::Color(255, 220, 100));
-        orb.setOutlineThickness(2.f);
-        window.draw(orb);
+        float orbitR  = 80.f + orbitalLevel * 10.f;
+        int   numSats = orbitalLevel;
+        float orbSize = 10.f + orbitalLevel * 2.f;
+
+        // Pierścień ścieżki orbity
+        sf::CircleShape ring(orbitR); ring.setOrigin(orbitR, orbitR);
+        ring.setPosition(GW/2.f, GH/2.f);
+        ring.setFillColor(sf::Color::Transparent);
+        sf::Color ringCol = bulletColor; ringCol.a = 18;
+        ring.setOutlineColor(ringCol); ring.setOutlineThickness(1.f);
+        window.draw(ring);
+
+        // Kolory na podstawie bulletColor
+        sf::Color orbFill = bulletColor; orbFill.a = 220;
+        sf::Color orbOut(
+            std::min(255, (int)bulletColor.r + 60),
+            std::min(255, (int)bulletColor.g + 60),
+            std::min(255, (int)bulletColor.b + 60));
+
+        for (int s = 0; s < numSats; s++) {
+            float angle = orbitalAngle + s * (2.f * GPI / std::max(1, numSats));
+            sf::Vector2f orbPos = playerPos + sf::Vector2f(
+                std::cos(angle) * orbitR,
+                std::sin(angle) * orbitR);
+            sf::Vector2f scr = worldToScreen(orbPos, playerPos);
+
+            // Glow
+            float gr = orbSize * 2.5f;
+            sf::CircleShape glow(gr); glow.setOrigin(gr, gr);
+            glow.setPosition(scr);
+            sf::Color gc = bulletColor; gc.a = 45;
+            glow.setFillColor(gc);
+            window.draw(glow);
+
+            // Satelita
+            sf::CircleShape orb(orbSize); orb.setOrigin(orbSize, orbSize);
+            orb.setPosition(scr);
+            orb.setFillColor(orbFill);
+            orb.setOutlineColor(orbOut);
+            orb.setOutlineThickness(2.f);
+            window.draw(orb);
+        }
     }
 
     // ── Shock Grid — pulsujący okrąg wokół gracza ────────
@@ -1849,7 +1982,7 @@ void Game::applyClass(PlayerClass pc) {
     baseSpeedMult   = d.spdMult;
     playerSpeedMult = d.spdMult;
     playerAtk       = 10.f * d.atkMult;
-    baseFireRate    = 3.2f * d.fireRateMult;
+    baseFireRate    = 1.4f * d.fireRateMult;
     playerFireRate  = baseFireRate;
     baseMagnet      = 150.f + d.magnetBonus;
     playerMagnet    = baseMagnet;
@@ -1969,18 +2102,25 @@ void Game::drawClassSelect() {
 
 void Game::updateBossArena() {
     if (!bossArenaActive) return;
-    // Sprawdź czy boss jeszcze żyje
+
     bool bossAlive = false;
-    for (auto& e : enemies)
-        if (e.alive && e.isBoss) { bossAlive = true; break; }
+    for (auto& e : enemies) {
+        if (e.alive && e.isBoss) {
+            bossAlive = true;
+            break;
+        }
+    }
+
     if (!bossAlive) {
         bossArenaActive = false;
         return;
     }
-    // Wypychaj gracza z powrotem do sfery
+
     float d = vlen(playerPos - bossArenaCenter);
     if (d > bossArenaRadius - 30.f) {
-        playerPos = bossArenaCenter + vnorm(playerPos - bossArenaCenter) * (bossArenaRadius - 30.f);
+        playerPos = bossArenaCenter +
+            vnorm(playerPos - bossArenaCenter) *
+            (bossArenaRadius - 30.f);
     }
 }
 
@@ -2068,4 +2208,51 @@ void Game::drawPauseMenu() {
     hint.setFillColor(sf::Color(100, 100, 100));
     centerText(hint, GW / 2.f, GH * 0.78f);
     window.draw(hint);
+}
+
+void Game::recycleStars() {
+
+    float halfW = GW * 1.2f;
+    float halfH = GH * 1.2f;
+    for (auto& s : stars) {
+        sf::Vector2f rel = s.worldPos - playerPos;
+        if (std::abs(rel.x) > halfW || std::abs(rel.y) > halfH) {
+            float angle = frand() * 2.f * GPI;
+            float dist  = frandr(GW * 0.5f, GW * 1.1f);
+            s.worldPos  = playerPos + sf::Vector2f(std::cos(angle)*dist, std::sin(angle)*dist);
+            s.r         = frandr(0.5f, 2.5f);
+            s.bright    = frandr(0.4f, 1.f);
+            s.twSpd     = frandr(1.f, 3.f);
+            s.twPhase   = frand() * GPI * 2.f;
+        }
+    }
+}
+
+void Game::initMatrixDrops() {
+    const std::string chars = "01アイウエABCDEF#&@%$!><";
+    matrixDrops.resize(55);
+    for (auto& d : matrixDrops) {
+        d.x     = frandr(0.f, GW);
+        d.y     = frandr(-GH, GH);
+        d.speed = frandr(55.f, 175.f);
+        d.alpha = frandr(0.12f, 0.6f);
+        d.ch    = chars[rand() % chars.size()];
+    }
+}
+
+void Game::updateMatrixDrops(float dt) {
+    const std::string chars = "01アイウエABCDEF#&@%$!><";
+    matrixTimer += dt;
+    for (auto& d : matrixDrops) {
+        d.y += d.speed * dt;
+        if (matrixTimer > 0.12f)
+            d.ch = chars[rand() % chars.size()];
+        if (d.y > GH + 20.f) {
+            d.y     = -20.f;
+            d.x     = frandr(0.f, GW);
+            d.speed = frandr(55.f, 175.f);
+            d.alpha = frandr(0.12f, 0.6f);
+        }
+    }
+    if (matrixTimer > 0.12f) matrixTimer = 0.f;
 }
