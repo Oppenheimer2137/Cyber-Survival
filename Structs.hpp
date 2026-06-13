@@ -52,3 +52,15 @@ struct MatrixDrop {
     float x, y, speed, alpha;
     char ch;
 };
+
+struct FireTrail {
+    sf::Vector2f worldPos;
+    float radius, lifetime, maxLife;
+    bool alive;
+};
+
+struct EnemyBullet {
+    sf::Vector2f worldPos, dir;
+    float speed, lifetime;
+    bool alive;
+};

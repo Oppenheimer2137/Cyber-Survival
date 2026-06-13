@@ -6,13 +6,14 @@
 #include "Structs.hpp"
 #include "Upgrades.hpp"
 #include "PlayerClass.hpp"
+#include "SoundManager.hpp"
 
 class Game {
 public:
     Game();
     void run();
 private:
-    enum class State { Menu, ClassSelect, Playing, LevelUp, GameOver, Paused };
+    enum class State { Menu, ClassSelect, Playing, LevelUp, GameOver, Paused};
 
     sf::RenderWindow window;
     sf::Clock        clock;
@@ -23,14 +24,21 @@ private:
     PlayerClass selectedClass = PlayerClass::None;
     int         hoveredClass  = -1;
     int              totalKills = 0;
+    SoundManager sound;
+
+    State prevState = State::Menu;
+    int   prevHoveredClass = -1;
+    bool  lowHpAlarmActive = false;
+
 
     // Tło
     std::vector<Star> stars;
 
     // Przeciwnicy
-    std::vector<Enemy>    enemies;
-    std::vector<Bullet>   bullets;
-    std::vector<Particle> particles;
+    std::vector<Enemy>       enemies;
+    std::vector<Bullet>      bullets;
+    std::vector<Particle>    particles;
+    std::vector<EnemyBullet> enemyBullets;
 
     // Orby
     std::vector<XpOrb>    xpOrbs;
@@ -102,6 +110,7 @@ private:
     // Stany aktywnych broni (odblokowane przez power-upy)
     bool  hasOrbitalNode   = false;
     float orbitalAngle     = 0.f;
+    float orbitalSfxCd     = 0.f;
     int   orbitalLevel     = 0;
 
     bool  hasChainShock    = false;
@@ -188,6 +197,7 @@ private:
         bool alive;
     };
     std::vector<CorruptionZoneObj> corruptionZones;
+    std::vector<FireTrail> fireTrails;
 
     void buildUpgradeChoices();
     void applyUpgrade(int choiceIndex);
@@ -241,6 +251,12 @@ private:
     void tickWeapons(float dt);
     void drawWeapons();
     void hitEnemiesInRadius(sf::Vector2f pos, float radius, float dmg, sf::Color col, bool freeze = false);
+
+    void updateFireTrails(float dt);
+    void drawFireTrails();
+
+    void updateEnemyBullets(float dt);
+    void drawEnemyBullets();
 
     void resetGame();
     void drawMinimap();

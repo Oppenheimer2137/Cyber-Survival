@@ -20,6 +20,8 @@ Game::Game() {
     buildPlayerShape();
     upgradePool = getUpgradePool();
     initMatrixDrops();
+    sound.loadAll();
+    sound.playMusic("menu_ambient.wav", true);
 }
 
 void Game::run() {
@@ -74,15 +76,18 @@ void Game::handleEvents() {
         if (ev.type == sf::Event::Closed) window.close();
         if (ev.type == sf::Event::KeyPressed) {
             if (ev.key.code == sf::Keyboard::Escape) {
-                if (state == State::Playing) { state = State::Paused; paused = true; pauseSelected = 0; }
-                else if (state == State::Paused) { state = State::Playing; paused = false; }
+                if (state == State::Playing) { state = State::Paused; paused = true; pauseSelected = 0; sound.play("pause"); }
+                else if (state == State::Paused) { state = State::Playing; paused = false; sound.play("unpause"); }
                 else window.close();
             }
-            if (ev.key.code == sf::Keyboard::Return && state == State::Menu)
+            if (ev.key.code == sf::Keyboard::Return && state == State::Menu) {
                 state = State::ClassSelect;
+                sound.play("ui_select");
+            }
             if (ev.key.code == sf::Keyboard::Return && state == State::GameOver) {
                 resetGame();
                 state = State::Menu;
+                sound.playMusic("menu_ambient.wav", true);
             }
             if (state == State::LevelUp) {
                 if (ev.key.code == sf::Keyboard::Num1) applyUpgrade(0);
@@ -95,8 +100,8 @@ void Game::handleEvents() {
                 if (ev.key.code == sf::Keyboard::Up)   pauseSelected = (pauseSelected + 1) % 2;
                 if (ev.key.code == sf::Keyboard::Down) pauseSelected = (pauseSelected + 1) % 2;
                 if (ev.key.code == sf::Keyboard::Return) {
-                    if (pauseSelected == 0) { state = State::Playing; paused = false; }
-                    else { resetGame(); state = State::Menu; paused = false; }
+                    if (pauseSelected == 0) { state = State::Playing; paused = false; sound.play("unpause"); }
+                    else { resetGame(); state = State::Menu; paused = false; sound.play("ui_select"); sound.playMusic("menu_ambient.wav", true); }
                 }
             }
             if (state == State::ClassSelect) {
@@ -116,6 +121,14 @@ void Game::handleEvents() {
                     resetGame();
                     applyClass(selectedClass);
                     state = State::Playing;
+                    if (idx >= 0) {
+                    selectedClass = map[idx];
+                    resetGame();
+                    applyClass(selectedClass);
+                    state = State::Playing;
+                    sound.play("ui_select");
+                    sound.playMusic("gameplay_music.ogg", true);
+                }
                 }
             }
         }
@@ -137,6 +150,12 @@ void Game::handleEvents() {
                         resetGame();
                         applyClass(selectedClass);
                         state = State::Playing;
+                        selectedClass = pcs[i];
+                        resetGame();
+                        applyClass(selectedClass);
+                        state = State::Playing;
+                        sound.play("ui_select");
+                        sound.playMusic("gameplay_music.ogg", true);
                     }
                 }
             }
@@ -167,6 +186,30 @@ void Game::handleEvents() {
                 float cy = GH/2.f - cardH/2.f;
                 if (mp.x >= cx && mp.x <= cx+cardW && mp.y >= cy && mp.y <= cy+cardH)
                 hoveredClass = i;
+                if (ev.type == sf::Event::MouseMoved && state == State::ClassSelect) {
+    sf::Vector2f mp((float)ev.mouseMove.x, (float)ev.mouseMove.y);
+    float cardW = 200.f, cardH = 300.f;
+    float startX = GW/2.f - 2.5f * cardW - 2.f * 10.f;
+
+    int oldHover = hoveredClass;
+    hoveredClass = -1;
+
+    for (int i = 0; i < 5; ++i) {
+        float cx = startX + i * (cardW + 10.f);
+        float cy = GH/2.f - cardH/2.f;
+
+        if (mp.x >= cx && mp.x <= cx + cardW &&
+            mp.y >= cy && mp.y <= cy + cardH)
+        {
+            hoveredClass = i;
+        }
+    }
+
+    if (hoveredClass != oldHover && hoveredClass != -1) {
+        sound.play("ui_hover");
+    }
+}
+
             }
         }
     }
@@ -185,6 +228,12 @@ void Game::update(float dt) {
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::S))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))) dir.y += 1.f;
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::A))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))) dir.x -= 1.f;
         if ((sf::Keyboard::isKeyPressed(sf::Keyboard::D))||(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))) dir.x += 1.f;
+        if (vlen(dir) > 0.01f) {
+            sound.playLoop("move_loop");
+        } else {
+            sound.stopLoop("move_loop");
+        }
+        playerPos += vnorm(dir) * PLAYER_SPD * playerSpeedMult * dt;
         playerPos += vnorm(dir) * PLAYER_SPD * playerSpeedMult * dt;
 
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) tryDash();
@@ -202,8 +251,8 @@ void Game::update(float dt) {
         fireTimer -= dt;
         findAndShoot();
         updateBullets(dt);
+        updateEnemyBullets(dt);
         if (invincTimer > 0.f) invincTimer -= dt;
-
         if (playerHpRegen > 0.f) {
             static float hpRegenAcc = 0.f;
             hpRegenAcc += playerHpRegen * dt;
@@ -215,6 +264,11 @@ void Game::update(float dt) {
         }
 
         checkPlayerHit();
+        if (playerHp <= playerMaxHp / 4) {
+            sound.playLoop("low_hp_alarm");
+        } else {
+            sound.stopLoop("low_hp_alarm");
+        }
         xpSpawnTimer += dt;
         if (xpSpawnTimer >= 3.f) {
             xpSpawnTimer = 0.f;
@@ -243,6 +297,7 @@ void Game::update(float dt) {
     tickBoosts(dt);
     updateParticles(dt);
     tickWeapons(dt);
+    updateFireTrails(dt);
     updateBossArena();
     recycleStars();
     scanlineOffset += 60.f * dt;
@@ -259,7 +314,8 @@ void Game::render() {
     drawBG();
     if (state == State::Playing || state == State::Paused) {
         drawParticles(); drawBossArena(); drawXpOrbs(); drawHpOrbs(); drawBoostOrbs();
-        drawEnemies(); drawBullets(); drawWeapons(); drawPlayer(); drawHUD(); drawMinimap();
+        drawEnemies(); drawFireTrails(); drawBullets(); drawEnemyBullets(); drawWeapons();
+        drawPlayer(); drawHUD(); drawMinimap();
     }
     if (state == State::Paused)  drawPauseMenu();
     if (state == State::Menu)    drawMenu();
@@ -460,7 +516,7 @@ void Game::spawnEnemy() {
     switch (e.type) {
     case 0: e.hp = 30.f*hpMult;  e.maxHp=e.hp; e.speed=80.f*spdMult;  break;
     case 1: e.hp = 15.f*hpMult;  e.maxHp=e.hp; e.speed=150.f*spdMult; break;
-    case 2: e.hp = 200.f*hpMult; e.maxHp=e.hp; e.speed=40.f*spdMult;  break;
+    case 2: e.hp = 35.f*hpMult;  e.maxHp=e.hp; e.speed=60.f*spdMult;  break;
     case 3: e.hp = 60.f*hpMult;  e.maxHp=e.hp; e.speed=70.f*spdMult;  break;
     case 4: e.hp = 40.f*hpMult;  e.maxHp=e.hp; e.speed=55.f*spdMult;  break;
     case 5: e.hp = 25.f*hpMult;  e.maxHp=e.hp; e.speed=0.f;           break;
@@ -480,16 +536,17 @@ if (bossArenaActive) return;
         waveTimer = 0.f;
         waveNumber++;
         bossSpawned = false;
+        sound.play("wave_start");
         if (waveNumber % 5 == 0) {
             spawnBoss();
             bossSpawned = true;
         }
     }
 
-    spawnInterval = std::max(0.2f, 4.f - waveNumber * 0.02f);
+    spawnInterval = std::max(0.15f, 3.5f - waveNumber * 0.025f);
     if (spawnTimer >= spawnInterval) {
         spawnTimer = 0.f;
-        int count = 2 + waveNumber / 6;
+        int count = 3 + waveNumber / 4;
         for (int i = 0; i < count; ++i) spawnEnemy();
     }
 }
@@ -505,6 +562,27 @@ void Game::updateEnemies(float dt) {
             sf::Vector2f perp(-toPlayer.y, toPlayer.x);
             float zigzag = std::sin(e.zigzagTimer * 5.f) * 0.6f;
             e.worldPos += (toPlayer + perp * zigzag) * e.speed * dt;
+}       else if (e.type == 2) {
+
+            float d = vlen(playerPos - e.worldPos);
+            if (d > 350.f) {
+                e.worldPos += vnorm(playerPos - e.worldPos) * e.speed * dt;
+            } else if (d < 250.f) {
+                e.worldPos -= vnorm(playerPos - e.worldPos) * e.speed * dt;
+            }
+            e.zigzagTimer -= dt;
+            if (e.zigzagTimer <= 0.f) {
+                e.zigzagTimer = 1.8f;
+                EnemyBullet eb;
+                eb.worldPos = e.worldPos;
+                eb.dir      = vnorm(playerPos - e.worldPos);
+                eb.speed    = 320.f;
+                eb.lifetime = 3.f;
+                eb.alive    = true;
+                enemyBullets.push_back(eb);
+                enemyBullets.push_back(eb);
+                sound.play("enemy_shoot");
+            }
 }       else if (e.type == 4) {
             float d = vlen(playerPos - e.worldPos);
             float spd = d > 200.f ? e.speed : e.speed * 0.3f;
@@ -517,6 +595,8 @@ void Game::updateEnemies(float dt) {
                 float d = 80.f + frand() * 60.f;
                 e.worldPos = playerPos + sf::Vector2f(std::cos(a)*d, std::sin(a)*d);
                 e.flashTimer = 0.3f;
+                e.flashTimer = 0.3f;
+                sound.play("teleport");
     }
 }       else {
             e.worldPos += vnorm(playerPos - e.worldPos) * e.speed * dt;
@@ -524,10 +604,10 @@ void Game::updateEnemies(float dt) {
 
     for (int i = 0; i < (int)enemies.size(); ++i) {
         if (!enemies[i].alive) continue;
-        float ri = enemies[i].isBoss ? 120.f : (enemies[i].type == 2 ? 36.f : (enemies[i].type == 6 ? 16.f : 24.f));
+        float ri = enemies[i].isBoss ? 120.f : (enemies[i].type == 2 ? 22.f : (enemies[i].type == 6 ? 16.f : 24.f));
         for (int j = i+1; j < (int)enemies.size(); ++j) {
             if (!enemies[j].alive) continue;
-            float rj = enemies[j].isBoss ? 120.f : (enemies[j].type == 2 ? 36.f : (enemies[j].type == 6 ? 16.f : 24.f));
+            float rj = enemies[j].isBoss ? 120.f : (enemies[j].type == 2 ? 22.f : (enemies[j].type == 6 ? 16.f : 24.f));
             float minDist = ri + rj;
             sf::Vector2f diff = enemies[i].worldPos - enemies[j].worldPos;
             float d = vlen(diff);
@@ -612,7 +692,7 @@ void Game::drawEnemies() {
         switch(e.type) {
             case 0: col = sf::Color(220, 40,  40);  break;
             case 1: col = sf::Color(60,  240, 120); break;
-            case 2: col = sf::Color(140, 140, 160); break;
+            case 2: col = sf::Color(160,  40, 220); break;
             case 3: col = sf::Color(220, 140,  40); break;
             case 4: col = sf::Color(40,  180, 255); break;
             case 5: col = sf::Color(160,   0, 255); break;
@@ -620,7 +700,7 @@ void Game::drawEnemies() {
             default:col = sf::Color(220,  40,  40); break;
         }
         // Rozmiary 2x: bazowy 24, duży 36, mały 16
-        float eRad = (e.type == 2) ? 36.f : (e.type == 6 ? 16.f : 24.f);
+        float eRad = (e.type == 2) ? 22.f : (e.type == 6 ? 16.f : 24.f);
 
         // Poświata wokół wroga
         float glowR = eRad + 10.f + 4.f * std::sin(e.glowPhase);
@@ -655,13 +735,33 @@ void Game::drawEnemies() {
             hbf.setFillColor(sf::Color(220, 60, 60));
             window.draw(hbf);
         }
+
+        if (e.frozenTimer > 0.f) {
+            float fr = eRad + 6.f;
+            sf::CircleShape frost(fr);
+            frost.setOrigin(fr, fr);
+            frost.setPosition(scr);
+            frost.setFillColor(sf::Color(120, 220, 255, 60));
+            frost.setOutlineColor(sf::Color(180, 240, 255, 180));
+            frost.setOutlineThickness(2.f);
+            window.draw(frost);
+
+            for (int k = 0; k < 4; ++k) {
+                float a = k * (GPI / 2.f) + e.glowPhase * 0.3f;
+                sf::CircleShape shard(2.5f);
+                shard.setOrigin(2.5f, 2.5f);
+                shard.setPosition(scr.x + std::cos(a) * fr, scr.y + std::sin(a) * fr);
+                shard.setFillColor(sf::Color(200, 245, 255, 220));
+                window.draw(shard);
+            }
+        }
     }
 }
 
 void Game::checkPlayerHit() {
     for (auto& e : enemies) {
         if (!e.alive) continue;
-        float eRadius = e.isBoss ? 120.f : (e.type == 2 ? 36.f : (e.type == 6 ? 16.f : 24.f));
+        float eRadius = e.isBoss ? 120.f : (e.type == 2 ? 22.f : (e.type == 6 ? 16.f : 24.f));
         if (vlen(e.worldPos - playerPos) < eRadius + 28.f) {
             if (invincTimer <= 0.f && boostGhostTimer <= 0.f) {
                  playerHp -= 10;
@@ -669,11 +769,16 @@ void Game::checkPlayerHit() {
                 screenFlashTimer = 0.30f;
                 screenFlashMax   = 0.30f;
                 screenFlashCol   = sf::Color(220, 20, 20);
+                sound.play("player_hit");
                 if (playerHp <= 0) {
                     state = State::GameOver;
                     screenFlashTimer = 1.0f;
                     screenFlashMax   = 1.0f;
                     screenFlashCol   = sf::Color(200, 0, 0);
+                    sound.play("game_over");
+                    sound.stopLoop("move_loop");
+                    sound.stopLoop("low_hp_alarm");
+                    sound.playMusic("menu_ambient.wav", true);
                 }
             }
         }
@@ -703,6 +808,7 @@ void Game::findAndShoot() {
     b.alive    = true;
     b.color    = bulletColor;
     bullets.push_back(b);
+    sound.play("shoot");
 }
 
 void Game::updateBullets(float dt) {
@@ -714,12 +820,13 @@ void Game::updateBullets(float dt) {
 
         for (auto& e : enemies) {
             if (!e.alive) continue;
-            float eR = e.isBoss ? 120.f : (e.type == 2 ? 36.f : (e.type == 6 ? 16.f : 24.f));
+            float eR = e.isBoss ? 120.f : (e.type == 2 ? 22.f : (e.type == 6 ? 16.f : 24.f));
             if (vlen(b.worldPos - e.worldPos) < 10.f + eR) {
                 float dmg = playerAtk * 1.5f * (boostDmgTimer > 0.f ? 2.f : 1.f);
                 e.hp -= dmg;
                 e.flashTimer = 0.1f;
                 b.alive = false;
+                sound.play("hit_enemy");
                 if (e.hp <= 0.f) {
                     e.alive = false;
                     totalKills++;
@@ -733,18 +840,19 @@ void Game::updateBullets(float dt) {
                         baby.type = 0; baby.isBoss = false;
                         baby.alive = true; baby.flashTimer = 0.f;
                         baby.frozenTimer = 0.f; baby.zigzagTimer = 0.f;
-                        enemies.push_back(baby);
+                         enemies.push_back(baby);
                     }
+                    sound.play("split_enemy");
                 }
-
-                    int xpVal = e.isBoss ? 50 : (e.type == 2 ? 15 : 1);
+                    int xpVal = e.isBoss ? 50 : (e.type == 2 ? 3 : 1);
                     spawnXpOrb(e.worldPos, xpVal);
-                    if (e.type == 2 && frand() < 0.15f) spawnBoostOrb(e.worldPos, rand() % 5);
+                    if (e.type == 2 && frand() < 0.10f) spawnBoostOrb(e.worldPos, rand() % 5);
                     sf::Color col = e.isBoss ? sf::Color(255,180,0) :
                     e.type == 1 ? sf::Color(60,220,120) :
                     e.type == 2 ? sf::Color(120,120,140) :
                                   sf::Color(180,30,30);
                     spawnParticles(e.worldPos, col, e.isBoss ? 20 : 8);
+                    sound.play(e.isBoss ? "boss_death" : "enemy_death");
 }
                 break;
             }
@@ -758,6 +866,7 @@ void Game::updateBullets(float dt) {
 }
 
 void Game::drawBullets() {
+
     for (auto& b : bullets) {
         if (!b.alive) continue;
         sf::Vector2f scr = worldToScreen(b.worldPos, playerPos);
@@ -780,11 +889,69 @@ void Game::drawBullets() {
     }
 }
 
+void Game::drawEnemyBullets() {
+    for (auto& b : enemyBullets) {
+        if (!b.alive) continue;
+        sf::Vector2f scr = worldToScreen(b.worldPos, playerPos);
+        if (!isOnScreen(scr, 20.f)) continue;
+
+        sf::CircleShape glow(12.f);
+        glow.setOrigin(12.f, 12.f);
+        glow.setPosition(scr);
+        glow.setFillColor(sf::Color(160, 40, 220, 60));
+        window.draw(glow);
+
+        sf::CircleShape shape(6.f);
+        shape.setOrigin(6.f, 6.f);
+        shape.setFillColor(sf::Color(200, 80, 255));
+        shape.setOutlineColor(sf::Color(255, 200, 255, 150));
+        shape.setOutlineThickness(1.f);
+        shape.setPosition(scr);
+        window.draw(shape);
+    }
+}
+
+void Game::updateEnemyBullets(float dt) {
+    for (auto& b : enemyBullets) {
+        if (!b.alive) continue;
+        b.worldPos += b.dir * b.speed * dt;
+        b.lifetime -= dt;
+        if (b.lifetime <= 0.f) { b.alive = false; continue; }
+
+        if (vlen(b.worldPos - playerPos) < 28.f + 8.f) {
+            if (invincTimer <= 0.f && boostGhostTimer <= 0.f) {
+                 playerHp -= 10;
+                invincTimer = 1.f;
+                screenFlashTimer = 0.30f;
+                screenFlashMax   = 0.30f;
+                screenFlashCol   = sf::Color(220, 20, 20);
+                sound.play("player_hit");
+                if (playerHp <= 0) {
+                    state = State::GameOver;
+                    screenFlashTimer = 1.0f;
+                    screenFlashMax   = 1.0f;
+                    screenFlashCol   = sf::Color(200, 0, 0);
+                    sound.play("game_over");
+                    sound.stopLoop("move_loop");
+                    sound.stopLoop("low_hp_alarm");
+                    sound.playMusic("menu_ambient.wav", true);
+                }
+            }
+            b.alive = false;
+        }
+    }
+    enemyBullets.erase(
+        std::remove_if(enemyBullets.begin(), enemyBullets.end(),
+                       [](const EnemyBullet& b){ return !b.alive; }),
+        enemyBullets.end()
+    );
+}
+
 void Game::drawHUD() {
     float barW   = 512.f;
     float barH   = 24.f;
     float x      = 20.f;
-    float y      = GH - 30.f;
+    float y      = GH - 40.f;
     float filled = barW * (playerHp / (float)playerMaxHp);
 
     sf::RectangleShape bgBar({barW, barH});
@@ -829,12 +996,12 @@ void Game::drawHUD() {
     t.setCharacterSize(16);
 
     t.setString("HP: " + std::to_string(playerHp) + " / " + std::to_string(playerMaxHp));
-    t.setFillColor(sf::Color(180, 255, 200));
-    t.setPosition(x, y - 20.f);
+    t.setFillColor(sf::Color(255, 255, 255));
+    t.setPosition(x+5.f, y +1.f );
     window.draw(t);
 
     t.setString("LVL " + std::to_string(playerLevel) + "   XP: " + std::to_string(playerXp) + " / " + std::to_string(xpToNext));
-    t.setFillColor(sf::Color(100, 180, 255));
+    t.setFillColor(sf::Color(180, 200, 255));
     t.setPosition(x, y - 38.f);
     window.draw(t);
 
@@ -943,6 +1110,7 @@ void Game::checkXpPickup() {
             orb.worldPos += vnorm(playerPos - orb.worldPos) * 400.f * 0.016f;
         if (d < pickupRadius) {
             orb.alive = false;
+            sound.play("xp_pickup");
             if (orb.orbSize == 3) playerHp = std::min(playerMaxHp, playerHp + 20);
             playerXp += orb.value;
             if (playerXp >= xpToNext) {
@@ -953,6 +1121,7 @@ void Game::checkXpPickup() {
                 if (pendingLevelUps > 0) {
                     buildUpgradeChoices();
                     state = State::LevelUp;
+                    sound.play("level_up");
                 }
             }
         }
@@ -1013,6 +1182,7 @@ void Game::checkHpPickup() {
         if (d < 40.f) {
             o.alive   = false;
             playerHp = std::min(playerHp + 25, playerMaxHp);
+            sound.play("hp_pickup");
         }
     }
 }
@@ -1026,6 +1196,7 @@ void Game::checkBoostPickup() {
             o.worldPos += vnorm(playerPos - o.worldPos) * 400.f * 0.016f;
         if (d < 40.f) {
             o.alive = false;
+            sound.play("boost_pickup");
             switch (o.type) {
                 case 0: boostSpeedTimer  = 15.f; break; // SpeedCore
                 case 1: boostFireTimer   = 12.f; break; // Overclock
@@ -1118,11 +1289,13 @@ void Game::tryDash() {
     dashTimer = 0.17f;
     dashCd    = 2.0f;
     invincTimer = 0.17f; // nietykalny podczas dashu
+    sound.play("dash");
 }
 
 void Game::tickDash(float dt) {
+    bool wasOnCd = dashCd > 0.f;
     if (dashCd > 0.f) dashCd -= dt;
-
+    if (wasOnCd && dashCd <= 0.f) sound.play("dash_ready");
     if (!dashing) return;
     dashTimer -= dt;
     playerPos += dashDir * 750.f * dt;
@@ -1156,9 +1329,11 @@ void Game::resetGame() {
     boostGhostTimer = 0.f;
     enemies.clear();
     bullets.clear();
+    enemyBullets.clear();
     xpOrbs.clear();
     hpOrbs.clear();
     boostOrbs.clear();
+    fireTrails.clear();
     playerShape.setRotation(0.f);
     gameTime = 0.f;
     totalKills = 0;
@@ -1190,6 +1365,9 @@ void Game::resetGame() {
     bossArenaRadius = 0.f;
     bossArenaCenter = {0.f, 0.f};
     bulletColor = sf::Color(0, 240, 180);
+    sound.stopLoop("move_loop");
+    sound.stopLoop("low_hp_alarm");
+    sound.stopLoop("corruption_zone");
 }
 
 void Game::spawnBoss() {
@@ -1215,6 +1393,7 @@ void Game::spawnBoss() {
     bossArenaActive = true;
     bossArenaCenter = playerPos;
     bossArenaRadius = 1400.f;
+    sound.play("boss_spawn");
 }
 
 void Game::spawnParticles(sf::Vector2f pos, sf::Color col, int n) {
@@ -1301,6 +1480,7 @@ void Game::applyUpgrade(int idx) {
     Upgrade* chosen = upgradeChoices[idx];
     chosen->level++;
     chosen->weight += 5.f;
+    sound.play("upgrade_select");
 
     // Reset wagi zignorowanych
     for (auto* u : upgradeChoices)
@@ -1475,9 +1655,9 @@ void Game::hitEnemiesInRadius(sf::Vector2f pos, float radius, float dmg,
     // Efekt wizualny
     WeaponEffect ef;
     ef.worldPos = pos;
-    ef.radius   = 0.f;
-    ef.alpha    = 200.f;
-    ef.lifetime = 0.3f;
+    ef.radius   = radius * 0.3f;
+    ef.alpha    = 220.f;
+    ef.lifetime = 0.4f;
     ef.color    = col;
     ef.alive    = true;
     weaponEffects.push_back(ef);
@@ -1488,8 +1668,10 @@ void Game::tickWeapons(float dt) {
     // ── Orbital Node — krąży wokół gracza ────────────────
     if (hasOrbitalNode) {
         orbitalAngle += (1.5f + orbitalLevel * 0.2f) * dt;
+        orbitalSfxCd -= dt;
         float orbitR  = 80.f + orbitalLevel * 10.f;
         int   numSats = orbitalLevel;
+        bool hitThisFrame = false;
         for (int s = 0; s < numSats; s++) {
             float angle = orbitalAngle + s * (2.f * GPI / std::max(1, numSats));
             sf::Vector2f orbPos = playerPos + sf::Vector2f(
@@ -1500,6 +1682,7 @@ void Game::tickWeapons(float dt) {
                 if (vlen(e.worldPos - orbPos) < 18.f) {
                     e.hp -= (playerAtk * 0.5f) * dt;
                     e.flashTimer = 0.1f;
+                    hitThisFrame = true;
                     if (e.hp <= 0.f) {
                         e.alive = false;
                         spawnXpOrb(e.worldPos, 1);
@@ -1508,12 +1691,17 @@ void Game::tickWeapons(float dt) {
                 }
             }
         }
+        if (hitThisFrame && orbitalSfxCd <= 0.f) {
+            orbitalSfxCd = 0.3f;
+            sound.play("orbital_hit");
+        }
     }
     // ── Chain Shock — łańcuch co 2s ──────────────────────
     if (hasChainShock) {
         chainShockCd -= dt;
         if (chainShockCd <= 0.f) {
             chainShockCd = 2.0f - chainShockLevel * 0.15f;
+            sound.play("chain_shock");
             // znajdź najbliższego, potem łańcuch
             Enemy* first = nullptr; float bd = 1e9f;
             for (auto& e : enemies) {
@@ -1557,6 +1745,7 @@ void Game::tickWeapons(float dt) {
         frostBurstCd -= dt;
         if (frostBurstCd <= 0.f) {
             frostBurstCd = 4.0f - frostBurstLevel * 0.3f;
+            sound.play("frost_burst");
             float r = 120.f + frostBurstLevel * 20.f;
             hitEnemiesInRadius(playerPos, r,
                 playerAtk * (1.f + frostBurstLevel * 0.3f),
@@ -1577,6 +1766,7 @@ void Game::tickWeapons(float dt) {
             }
             if (t) {
                 float r = 80.f + virusBombLevel * 15.f;
+                sound.play("virus_bomb");
                 hitEnemiesInRadius(t->worldPos, r,
                     playerAtk * (1.5f + virusBombLevel * 0.3f),
                     sf::Color(255, 60, 120));
@@ -1596,6 +1786,7 @@ void Game::tickWeapons(float dt) {
                 hitEnemiesInRadius(spos, 40.f,
                     playerAtk * (0.8f + staticStormLevel * 0.15f),
                     sf::Color(200, 100, 255));
+                sound.play("static_strike");
             }
         }
     }
@@ -1611,8 +1802,9 @@ void Game::tickWeapons(float dt) {
                 e.worldPos += vnorm(playerPos - e.worldPos) * 60.f * dt;
             }
         }
-        if (dataVortexCd <= 0.f) {
+       if (dataVortexCd <= 0.f) {
             dataVortexCd = 5.0f;
+            sound.play("data_vortex");
             hitEnemiesInRadius(playerPos, 80.f,
                 playerAtk * (1.f + dataVortexLevel * 0.25f),
                 sf::Color(255, 220, 0));
@@ -1620,21 +1812,30 @@ void Game::tickWeapons(float dt) {
     }
 
     // ── Core Drop — spada na losowego wroga co 3.5s ──────
-    if (hasCoreDropWeapon) {
-        coreDropCd -= dt;
-        if (coreDropCd <= 0.f) {
-            coreDropCd = 3.5f - coreDropLevel * 0.2f;
-            if (!enemies.empty()) {
-                int idx = rand() % enemies.size();
-                if (enemies[idx].alive) {
-                    hitEnemiesInRadius(enemies[idx].worldPos,
-                        60.f + coreDropLevel * 10.f,
-                        playerAtk * (2.f + coreDropLevel * 0.4f),
-                        sf::Color(255, 100, 0));
-                }
+if (hasCoreDropWeapon) {
+    coreDropCd -= dt;
+    if (coreDropCd <= 0.f) {
+        coreDropCd = 3.5f - coreDropLevel * 0.2f;
+
+        if (!enemies.empty()) {
+            int idx = rand() % enemies.size();
+
+            if (enemies[idx].alive) {
+
+                sound.play("core_drop");
+
+                hitEnemiesInRadius(
+                enemies[idx].worldPos,
+                60.f + coreDropLevel * 10.f,
+                playerAtk * (2.f + coreDropLevel * 0.4f),
+                sf::Color(255, 100, 0)
+                );
+
             }
         }
     }
+}
+
 
     // ── Corruption Zone — strefa obrażeń co 6s ───────────
     if (hasCorruptionZone) {
@@ -1648,6 +1849,11 @@ void Game::tickWeapons(float dt) {
             cz.tickTimer = 0.f;
             cz.alive     = true;
             corruptionZones.push_back(cz);
+        }
+        if (!corruptionZones.empty()) {
+            sound.playLoop("corruption_zone");
+        } else {
+            sound.stopLoop("corruption_zone");
         }
         // tick istniejących stref
         for (auto& cz : corruptionZones) {
@@ -1727,9 +1933,30 @@ void Game::tickWeapons(float dt) {
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) dir.x -= 1.f;
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) dir.x += 1.f;
         if (vlen(dir) > 0.01f && overburnCd <= 0.f) {
-            overburnCd = 0.3f;
-            hitEnemiesInRadius(playerPos, 35.f + overburnLevel * 8.f,
-                playerAtk * 0.4f, sf::Color(255, 80, 0));
+            overburnCd = 0.12f;
+            FireTrail ft;
+            ft.worldPos = playerPos;
+            ft.radius   = 35.f + overburnLevel * 8.f;
+            ft.lifetime = 0.6f + overburnLevel * 0.05f;
+            ft.maxLife  = ft.lifetime;
+            ft.alive    = true;
+            fireTrails.push_back(ft);
+        }
+        for (auto& ft : fireTrails) {
+            if (!ft.alive) continue;
+            for (auto& e : enemies) {
+                if (!e.alive) continue;
+                if (vlen(e.worldPos - ft.worldPos) < ft.radius) {
+                    e.hp -= playerAtk * 0.5f * dt;
+                    e.flashTimer = 0.05f;
+                    if (e.hp <= 0.f) {
+                        e.alive = false;
+                        totalKills++;
+                        spawnXpOrb(e.worldPos, e.isBoss ? 50 : (e.type == 2 ? 3 : 1));
+                        spawnParticles(e.worldPos, sf::Color(255,80,0), 6);
+                    }
+                }
+            }
         }
     }
 
@@ -1738,6 +1965,7 @@ void Game::tickWeapons(float dt) {
         cryoSweepCd -= dt;
         if (cryoSweepCd <= 0.f) {
             cryoSweepCd = 5.f - cryoSweepLevel * 0.3f;
+            sound.play("cryo_sweep");
             float r = 150.f + cryoSweepLevel * 25.f;
             hitEnemiesInRadius(playerPos, r,
                 playerAtk * (1.2f + cryoSweepLevel * 0.2f),
@@ -1750,6 +1978,7 @@ void Game::tickWeapons(float dt) {
         empFlashCd -= dt;
         if (empFlashCd <= 0.f) {
             empFlashCd = 4.f - empFlashLevel * 0.2f;
+            sound.play("emp_flash");
             float r = 200.f + empFlashLevel * 30.f;
             for (auto& e : enemies) {
                 if (!e.alive) continue;
@@ -1780,6 +2009,7 @@ void Game::tickWeapons(float dt) {
             if (t) {
                 t->hp -= playerAtk * (0.6f + laserRayLevel * 0.15f);
                 t->flashTimer = 0.1f;
+                sound.play("laser_ray");
                 if (t->hp <= 0.f) {
                     t->alive = false;
                     spawnXpOrb(t->worldPos, 1);
@@ -1812,6 +2042,7 @@ void Game::tickWeapons(float dt) {
 }
 
 void Game::drawWeapons() {
+
     // ── Orbital Node ──────────────────────────────────────
     if (hasOrbitalNode) {
         float orbitR  = 80.f + orbitalLevel * 10.f;
@@ -1921,6 +2152,43 @@ void Game::drawWeapons() {
             sf::Vertex line[] = { {scrP, lc}, {scrT, lc} };
             window.draw(line, 2, sf::Lines);
         }
+    }
+}
+
+void Game::updateFireTrails(float dt) {
+    for (auto& ft : fireTrails) {
+        ft.lifetime -= dt;
+        if (ft.lifetime <= 0.f) ft.alive = false;
+    }
+    fireTrails.erase(
+        std::remove_if(fireTrails.begin(), fireTrails.end(),
+            [](const FireTrail& f){ return !f.alive; }),
+        fireTrails.end());
+}
+
+void Game::drawFireTrails() {
+    for (auto& ft : fireTrails) {
+        if (!ft.alive) continue;
+        sf::Vector2f scr = worldToScreen(ft.worldPos, playerPos);
+        float alpha = ft.lifetime / ft.maxLife;
+
+        sf::CircleShape glow(ft.radius * 1.3f);
+        glow.setOrigin(ft.radius * 1.3f, ft.radius * 1.3f);
+        glow.setPosition(scr);
+        glow.setFillColor(sf::Color(255, 80, 0, (sf::Uint8)(alpha * 60.f)));
+        window.draw(glow);
+
+        sf::CircleShape fire(ft.radius * alpha);
+        fire.setOrigin(ft.radius * alpha, ft.radius * alpha);
+        fire.setPosition(scr);
+        fire.setFillColor(sf::Color(255, (sf::Uint8)(120 + 100 * alpha), 0, (sf::Uint8)(alpha * 180.f)));
+        window.draw(fire);
+
+        sf::CircleShape core(ft.radius * alpha * 0.5f);
+        core.setOrigin(ft.radius * alpha * 0.5f, ft.radius * alpha * 0.5f);
+        core.setPosition(scr);
+        core.setFillColor(sf::Color(255, 255, 180, (sf::Uint8)(alpha * 200.f)));
+        window.draw(core);
     }
 }
 
